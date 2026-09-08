@@ -99,8 +99,11 @@ export type Project = {
 };
 export type StudioConfig = {
   connected: boolean;
+  baseUrl: string;
   llmModel: string;
   videoModel: string;
+  apiKeySet: boolean;
+  apiKeyHint?: string;
   maxDuration: number;
   generationConcurrency: number;
   styles?: {

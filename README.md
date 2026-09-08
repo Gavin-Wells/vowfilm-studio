@@ -60,26 +60,28 @@ cp .env.example .env
 bash scripts/dev.sh
 ```
 
-打开 `http://localhost:5179`。脚本同时启动 Go 与 React，退出时关闭它启动的 Go。当前机器已运行 Go 服务，可只运行 `npm run dev -- --host 127.0.0.1 --port 5179`，避免重复占用 Go 端口。
+打开 `http://localhost:5179`。新建影片走 `/new` 全页流程；创作引擎 API 可在 `/settings` 页面配置，也会持久化到 `data/provider.json`。
+
+脚本同时启动 Go 与 React，退出时关闭它启动的 Go。若本机已有 Go 服务在跑，可只运行 `npm run dev -- --host 127.0.0.1 --port 5179`，避免重复占用端口。
 
 验收后的构建可用 `npm run build && npm start` 在同一地址运行；Go 服务需另行保持运行。`npm start` 从本机 `.dev.vars` 读取网页代理配置，构建产物不包含密钥。
 
 | 配置 | 作用 |
 | --- | --- |
-| `STARNET_BASE_URL` | 默认 `https://open.embervale.cn` |
-| `STARNET_API_KEY` | 星网密钥，只留在 Go 服务端 |
-| `STARNET_LLM_MODEL` | 默认 GPT‑6 Astra |
+| `STARNET_BASE_URL` / `OPENAI_BASE_URL` | OpenAI 兼容 API 地址，默认 `https://open.embervale.cn` |
+| `STARNET_API_KEY` / `OPENAI_API_KEY` | API Key，只留在 Go 服务端 |
+| `STARNET_LLM_MODEL` / `OPENAI_MODEL` | 默认 GPT‑6 Astra |
 | `STARNET_VIDEO_MODEL` | 默认 SD2 Mini |
 | `GO_BACKEND_URL` | 网页服务端连接 Go，本地为 `http://127.0.0.1:8097` |
 | `GO_BACKEND_TOKEN` | 至少 24 字符的随机后端令牌 |
 | `PUBLIC_MEDIA_BASE_URL` | Go 素材服务的 HTTPS 地址，供 AI 配乐读取视频 |
-| `VOWFILM_CONCURRENCY` | 1–6 路任务，默认 2，本次使用 4 |
+| `VOWFILM_CONCURRENCY` | 1–6 路任务，默认 2 |
 
-`.env` 和 `.dev.vars` 排除出 Git 与交付包。新风格需要可访问的 `PUBLIC_MEDIA_BASE_URL` 才能自动配乐；也可上传自己的音频。配乐服务缺失时不会悄悄换回循环伴奏。
+`.env`、`.dev.vars` 与 `data/` 排除出 Git。也可在网页 **引擎配置** 中填写 API 地址、Key 与模型，无需重启服务。
 
 ## 使用
 
-1. 新建影片，选择风格、1/2/3/4 分钟和画幅，填写故事与场景。
+1. 打开 `/new` 新建影片：先选现场播放用途，再写故事与导演 Prompt，选择风格、时长和画幅。
 2. 上传参考图片或音乐。真人素材需先在第三方平台完成授权与入库，再绑定已授权 `asset://asset-…`；服务端验证其为 `Active`。网页不代替第三方完成本人授权。
 3. 一键生成，或先编排分镜。点击镜头查看入场、出场和衔接理由，编辑指令后局部重做。
 4. 查看配乐段落、单独试听音轨，播放与下载成片，导出 JSON 工程。
@@ -111,6 +113,6 @@ go test -race ./...
 
 测试覆盖六种风格在 1–4 分钟的时长与节拍网格、自定义 Prompt 跨节点传递、章节造型绑定、换装边界与片尾裁切、现场字幕、重叠帧、存储回滚、鉴权、幂等、签名资源范围和过期、原生音频归档解析、字幕转义。Lint 检查业务代码，原样保留的 shadcn 组件仍接受 TypeScript 检查。
 
-实际验证 60 秒横屏成片；其他时长与竖屏通过编排测试，未逐一付费生成完整影片。成片检查完整解码、音视频轨道并抽帧审阅。没有自动人脸或手部质量检测，不保证每次人物服装和动作完全一致。当前环境未进行浏览器自动化或 WebMCP 浏览器调用验收。
+实际验证 60 秒横屏成片；其他时长与竖屏通过编排测试，未逐一付费生成完整影片。成片检查完整解码、音视频轨道并抽帧审阅。没有自动人脸或手部质量检测，不保证每次人物服装和动作完全一致。
 
-本机已为网页、Go 和素材隧道配置 `vowfilm-web.service`、`vowfilm-studio.service`、`vowfilm-tunnel.service` 用户服务；也可用 `scripts/dev.sh` 启动开发进程。两种方式不要同时占用相同端口。机器、Go 或隧道停止后无法新生成；隧道重启后需更新网页连接地址与 `PUBLIC_MEDIA_BASE_URL`。正式运行请使用固定 HTTPS 服务器并备份 `data/`。
+生产部署可用 systemd 或进程管理器分别常驻 Go 与网页服务；需要 HTTPS 素材地址时配置 `PUBLIC_MEDIA_BASE_URL` 并备份 `data/`。

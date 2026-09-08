@@ -1965,9 +1965,19 @@ textarea {
   font-size: 14px;
   line-height: 1.6;
 }
+.settings-page code {
+  font-size: 0.92em;
+  color: #c8dcc8;
+}
+.settings-link span {
+  display: inline;
+}
 @media (max-width: 900px) {
   .occasion-grid {
     grid-template-columns: 1fr;
+  }
+  .settings-link span {
+    display: none;
   }
   .new-film-page {
     padding: 24px 16px 100px;

@@ -82,8 +82,11 @@ export default function NewFilmPage() {
           <div className="header-actions">
             <span className="connection">
               <i className={config?.connected ? 'online' : ''} />
-              {config?.connected ? '创作引擎已连接' : '连接创作引擎'}
+              {config?.connected ? '创作引擎已连接' : '等待配置 API Key'}
             </span>
+            <Link className="secondary-button" href="/settings">
+              引擎配置
+            </Link>
             <Link className="secondary-button" href="/">
               <ArrowLeft size={16} />
               返回工作台
@@ -102,7 +105,8 @@ export default function NewFilmPage() {
 
           {offline && (
             <output className="message offline new-film-alert">
-              生成服务暂时离线，无法创建新影片。请稍后重试或返回工作台观看已有内容。
+              生成服务暂时离线，无法创建新影片。请先检查{' '}
+              <Link href="/settings">创作引擎配置</Link> 或稍后重试。
             </output>
           )}
 
@@ -341,7 +345,7 @@ export default function NewFilmPage() {
               </div>
               <button
                 className="primary-button"
-                disabled={busy || offline || !config}
+                disabled={busy || offline || !config?.connected}
                 type="submit"
               >
                 {busy ? (

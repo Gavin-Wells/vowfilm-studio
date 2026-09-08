@@ -41,7 +41,17 @@ func main() {
 	if concurrency < 1 || concurrency > 6 {
 		concurrency = 2
 	}
-	cfg := studio.Config{PublicMediaURL: os.Getenv("PUBLIC_MEDIA_BASE_URL"), DataDir: data, BaseURL: val("STARNET_BASE_URL", "https://open.embervale.cn"), APIKey: os.Getenv("STARNET_API_KEY"), LLMModel: val("STARNET_LLM_MODEL", "openai/gpt-6-astra"), VideoModel: val("STARNET_VIDEO_MODEL", "volcengine/doubao-seedance-2-0-mini-260615"), Token: os.Getenv("GO_BACKEND_TOKEN"), Addr: val("VOWFILM_ADDR", "127.0.0.1:8097"), Concurrency: concurrency}
+	cfg := studio.Config{
+		PublicMediaURL: os.Getenv("PUBLIC_MEDIA_BASE_URL"),
+		DataDir:        data,
+		BaseURL:        val("STARNET_BASE_URL", val("OPENAI_BASE_URL", "https://open.embervale.cn")),
+		APIKey:         val("STARNET_API_KEY", os.Getenv("OPENAI_API_KEY")),
+		LLMModel:       val("STARNET_LLM_MODEL", val("OPENAI_MODEL", "openai/gpt-6-astra")),
+		VideoModel:     val("STARNET_VIDEO_MODEL", "volcengine/doubao-seedance-2-0-mini-260615"),
+		Token:          os.Getenv("GO_BACKEND_TOKEN"),
+		Addr:           val("VOWFILM_ADDR", "127.0.0.1:8097"),
+		Concurrency:    concurrency,
+	}
 	if len(cfg.Token) < 24 {
 		log.Fatal("GO_BACKEND_TOKEN must contain at least 24 characters")
 	}

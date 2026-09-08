@@ -19,6 +19,7 @@ import (
 
 type App struct {
 	cfg      Config
+	cfgMu    sync.RWMutex
 	store    *Store
 	provider *Provider
 	mu       sync.Mutex
@@ -34,6 +35,7 @@ func New(cfg Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg = loadProviderOverrides(cfg.DataDir, cfg)
 	a := &App{cfg: cfg, store: s, provider: newProvider(cfg), running: map[string]context.CancelFunc{}, slots: make(chan struct{}, cfg.Concurrency)}
 	if len(s.List()) == 0 {
 		p := &Project{ID: "film_demo", Title: "与你，快乐加倍", Brief: "制作60秒欢快婚礼短片，阳光海边花园、统一成年虚构新人、自然笑容、牵手起跑、转圈、朋友抛花瓣与碰杯庆祝，最后拥抱收尾。用动作和构图衔接镜头，配合有旋律和段落变化的欢快音乐。", Duration: 60, Style: "joyful", Ratio: "16:9", Status: "draft", Demo: true, Shots: []Shot{}, Assets: []Asset{}, Events: []Event{}, CreatedAt: now(), UpdatedAt: now(), Revision: 1, GenerationBudget: 180, OutputResolution: "720P", LLMModel: cfg.LLMModel, VideoModel: cfg.VideoModel}
@@ -87,8 +89,11 @@ func (a *App) cancel(id string) {
 	})
 }
 func (a *App) start(id, mode, shotID string) error {
-	if a.cfg.APIKey == "" && mode != "render" {
-		return errors.New("请先配置星网 API 密钥")
+	a.cfgMu.RLock()
+	apiKey := a.cfg.APIKey
+	a.cfgMu.RUnlock()
+	if apiKey == "" && mode != "render" {
+		return errors.New("请先配置创作 API Key")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()

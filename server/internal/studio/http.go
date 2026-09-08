@@ -56,7 +56,37 @@ func (a *App) Handler() http.Handler {
 		}
 		switch {
 		case r.URL.Path == "/api/config" && r.Method == "GET":
-			respond(w, 200, map[string]any{"connected": a.cfg.APIKey != "", "llmModel": a.cfg.LLMModel, "videoModel": a.cfg.VideoModel, "maxDuration": 240, "styles": filmStyles, "generationConcurrency": a.cfg.Concurrency})
+			respond(w, 200, a.configView())
+		case r.URL.Path == "/api/config" && r.Method == "PATCH":
+			var in struct {
+				BaseURL    string  `json:"baseUrl"`
+				APIKey     *string `json:"apiKey"`
+				LLMModel   string  `json:"llmModel"`
+				VideoModel string  `json:"videoModel"`
+			}
+			if err := decode(w, r, &in); err != nil {
+				fail(w, 400, err)
+				return
+			}
+			update := providerFile{
+				BaseURL:    in.BaseURL,
+				LLMModel:   in.LLMModel,
+				VideoModel: in.VideoModel,
+			}
+			updateKey := false
+			if in.APIKey != nil {
+				update.APIKey = *in.APIKey
+				updateKey = true
+			} else {
+				a.cfgMu.RLock()
+				update.APIKey = a.cfg.APIKey
+				a.cfgMu.RUnlock()
+			}
+			if err := a.updateProviderSettings(update, updateKey); err != nil {
+				fail(w, 400, err)
+				return
+			}
+			respond(w, 200, a.configView())
 		case r.URL.Path == "/api/projects":
 			a.projectsHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/projects/"):
@@ -121,8 +151,10 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	p.Events = []Event{}
 	p.OutputResolution = "720P"
 	p.Demo = true
+	a.cfgMu.RLock()
 	p.LLMModel = a.cfg.LLMModel
 	p.VideoModel = a.cfg.VideoModel
+	a.cfgMu.RUnlock()
 	event(&p, "影片工程已创建")
 	if err := a.store.Put(&p); err != nil {
 		fail(w, 500, err)

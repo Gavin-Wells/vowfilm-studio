@@ -161,6 +161,7 @@ export default function Studio() {
           setOffline(true);
           setConfig({
             connected: false,
+            baseUrl: '',
             llmModel: saved.llmModel || 'openai/gpt-6-astra',
             videoModel: saved.videoModel || '',
             maxDuration: 240,
@@ -429,6 +430,12 @@ export default function Studio() {
               <i className={config?.connected ? 'online' : ''} />
               {config?.connected ? '创作引擎已连接' : '连接创作引擎'}
             </span>
+            {!offline && (
+              <Link className="secondary-button settings-link" href="/settings">
+                <Settings2 size={16} />
+                <span>引擎配置</span>
+              </Link>
+            )}
             <button
               className="avatar"
               onClick={openSettings}
