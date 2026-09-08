@@ -1,0 +1,15 @@
+{
+  "file": "a-promise-in-light.mp4",
+  "sha256": "82a1c75c052bfd73226a8178e4ff76ff6581b84a4bc408d38ab28aef89c378b7",
+  "bytes": 18326211,
+  "duration_seconds": 60,
+  "width": 1280,
+  "height": 720,
+  "fps": 24,
+  "video_codec": "h264",
+  "audio_codec": "aac",
+  "audio_sample_rate": 48000,
+  "generated_artifact": true,
+  "fictional_demo": true,
+  "source_project": "film_demo"
+}
