@@ -10,7 +10,7 @@ import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("project")
-parser.add_argument("--name", default="joy-together")
+parser.add_argument("--name", default="today-our-story")
 args = parser.parse_args()
 if not re.fullmatch(r"[A-Za-z0-9_-]+", args.name):
     parser.error("name must be a plain filename stem")
@@ -67,7 +67,13 @@ for shot in p["shots"]:
         shot["thumbnailUrl"] = f"/demo/{archive_thumb}"
     for key in ["taskId", "videoFile", "videoUrl", "error", "reserved"]:
         shot.pop(key, None)
-p["posterUrl"] = p["shots"][min(7, len(p["shots"])-1)].get("thumbnailUrl", "")
+poster = dest / f"{args.name}-poster.jpg"
+subprocess.run([
+    "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+    "-ss", str(max(0, p["duration"] - 9)), "-i", str(movie),
+    "-frames:v", "1", "-vf", "scale=960:-2", "-q:v", "2", str(poster),
+], check=True)
+p["posterUrl"] = f"/demo/{poster.name}"
 p["filmUrl"] = f"/demo/{movie.name}"
 p["assets"] = []
 p["events"] = []

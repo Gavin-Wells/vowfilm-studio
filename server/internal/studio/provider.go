@@ -68,17 +68,14 @@ func (p *Provider) request(ctx context.Context, method, path string, body any, i
 	return out, nil
 }
 
-const directorPrompt = `你是婚礼影片导演和分镜编剧。只返回一个合法 JSON 对象，不要 Markdown。
-字段为 synopsis（100字内中文故事梗概）、shots（指定数量的镜头数组）。
-每个镜头必须有 title（短中文标题）、chapter（序章/相遇/相伴/誓约/余生）、description（中文画面概述）、camera（短中文运镜）、caption（一句15字以内原创中文心语）、transition（cut、match、dipwhite或dissolve），entryAction（开头的动作与构图）、exitAction（结尾的动作与构图）、transitionReason（如何承接下一镜头）、prompt（详细中文视频生成指令）。
-要求：严格遵守输入的风格指引。相邻镜头必须在动作、运动方向、视线或构图形状上有明确承接；先想好上一个镜头如何结束、下一个如何开始。至少80%为cut或match，最多两处有叙事理由的dissolve或dipwhite，不得连续叠化。禁止每个镜头都只有慢推或背影，必须包含人物笑容、互动和事件发展。镜头章节有开场、推进、转折、高潮和收尾。远景、中景和物件细节交替，避免重复画面。每个片段只安排一个主要动作和一种运镜，为剪辑留出稳定开头和结尾。固定人物造型、发型、左右位置和场景光线。不得编造用户未提供的具体经历、日期和地点。所有字幕由后期添加，视频生成指令必须写明无字幕无文字，单一连续镜头，不要背景音乐。不要输出外部素材URL、API参数或自行指定未提供的真实身份。
-虚构演示时，人物为成年虚构新人：中国成年新人，新娘黑色低盘发、无肩带直线抹胸象牙白丝绸A字婚纱；新郎黑色短发、深藏蓝无图案普通男士西服、白衬衫无领带。展示自然笑容，固定同一造型，禁止变成长袖婚纱或更换西装颜色。不要模仿真实名人。`
+const directorPrompt = `你是婚礼现场影片的分镜导演，只返回JSON：synopsis（100字内）、shots（指定数量镜头）。
+每镜必须有title、chapter、description、camera、caption（15字以内）、transition（cut/match/dipwhite/dissolve）、entryAction、exitAction、transitionReason、prompt（80–160字中文单镜头指令）。
+严格执行输入的treatment与shot_assignments：每镜所在章节、场景、造型已经明确分配，不能自行替换；同章衣服保持，章边允许按方案换装，人物面貌与身份不变。custom_prompt中的具体内容高于style_defaults；用户禁止的群像、道具、场景或镜头不能因默认风格再出现。实现mustHave并避开avoid，不能把用户Prompt仅用于摘要。
+每镜一个主要动作和一种运镜，相邻镜头有动作、方向、视线、道具或构图承接。章边换装用遮挡/同向旋转/道具特写，两段分别生成再切接，禁止衣服和人体液化变形。结尾镜头留出稳定亮相，适合大屏片尾留场。至少80%为cut/match，至多两处有理由的叠化或闪白，不得连续叠化。人物要有互动、表情和关系推进，远中近景交替，不全程慢推、空镜和背影。慢动作仅在用户要求或少量强调时使用。
+只使用用户提供的真实经历、姓名日期，不编造事实；资料不足用象征性情节。所有文字后期添加，视频prompt必须注明单一连续镜头、无字幕无文字无音乐。不要输出API参数、URL或文件路径。`
 
 func (p *Provider) Plan(ctx context.Context, project *Project) (string, []Shot, error) {
-	count := project.Duration / 60 * profileFor(project.Style).ShotsPerMinute
-	if !rhythmicStyle(project.Style) {
-		count = project.Duration / 60 * 8
-	}
+	count := shotCount(project)
 	var all []Shot
 	synopsis := ""
 	for offset := 0; offset < count; offset += 8 {
@@ -112,6 +109,9 @@ func (p *Provider) Plan(ctx context.Context, project *Project) (string, []Shot, 
 			}
 		}
 	}
+	if err := applyContinuity(project, all); err != nil {
+		return "", nil, err
+	}
 	return synopsis, all, nil
 }
 func (p *Provider) planBatch(ctx context.Context, project *Project, count, offset, total int, previous string) (string, []Shot, error) {
@@ -120,11 +120,15 @@ func (p *Provider) planBatch(ctx context.Context, project *Project, count, offse
 	for _, a := range project.Assets {
 		assetInfo = append(assetInfo, map[string]string{"role": a.Role, "name": a.Name})
 	}
-	brief := map[string]any{"title": project.Title, "brief": project.Brief, "duration_seconds": project.Duration, "shot_count": count, "total_shot_count": total, "global_start_index": offset + 1, "global_end_index": offset + count, "previous_shot_context": previous, "batch_instruction": "本次只输出指定全片范围内的镜头。根据全片位置推进开场、相遇、心动、庆祝与收尾，不要在每批重新开场或提前结尾。每个镜头prompt控制在80–120汉字，entryAction/exitAction各15字以内，transitionReason20字以内。", "style": project.Style, "ratio": project.Ratio, "fictional_demo": project.Demo, "assets": assetInfo, "style_direction": profile.Direction, "music_direction": profile.Music, "bpm": profile.BPM, "story_structure": "开场0–13%，推进13–40%，转折40–67%，庆祝高潮67–87%，收尾87–100%"}
-	raw, _ := json.Marshal(brief)
-	if project.Demo && project.Style == "garden" && project.Duration == 60 && offset == 0 {
-		raw = append(raw, []byte("\n第1镜头必须为：无人花园空镜，摄影机沿白色玫瑰花瓣小径缓慢前推，远处石砌别墅与白玫瑰花门，清晨金色光线、橄榄树、白色薄纱；用于承接已准备的开场素材。")...)
+	assignments := []map[string]any{}
+	for i := offset + 1; i <= offset+count; i++ {
+		act := actForShot(project.Treatment, i)
+		if act != nil {
+			assignments = append(assignments, map[string]any{"shot_index": i, "act": act, "look": lookByID(project.Treatment, act.LookID)})
+		}
 	}
+	brief := map[string]any{"title": project.Title, "facts": project.Brief, "custom_prompt": project.CustomPrompt, "wardrobe_prompt": project.WardrobePrompt, "duration_seconds": project.Duration, "shot_count": count, "total_shot_count": total, "global_start_index": offset + 1, "global_end_index": offset + count, "previous_shot_context": previous, "batch_instruction": "只输出指定范围内镜头，不要每批重新开场。按全片章节推进，遵循分配到各镜头的造型。", "style_defaults": profile, "ratio": project.Ratio, "fictional_demo": project.Demo, "assets": assetInfo, "occasion_direction": occasionDirection(project), "treatment": project.Treatment, "shot_assignments": assignments, "bpm": targetBPM(project)}
+	raw, _ := json.Marshal(brief)
 	out, err := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]any{{"role": "system", "content": directorPrompt}, {"role": "user", "content": string(raw)}}, "reasoning_effort": "low", "max_tokens": 6500}, "")
 	if err != nil {
 		return "", nil, err
@@ -164,15 +168,13 @@ func (p *Provider) planBatch(ctx context.Context, project *Project, count, offse
 		s.VideoFile = ""
 		s.ThumbnailURL = ""
 		s.Error = ""
+		s.ActID, s.LookID, s.ChangeToLookID = "", "", ""
 		switch s.Transition {
 		case "cut", "match", "dipwhite", "dissolve":
 		default:
 			s.Transition = "cut"
 		}
-		if project.Demo && rhythmicStyle(project.Style) {
-			s.Prompt = "统一虚构人物造型：中国成年新娘，黑色低盘发，无肩带直线抹胸象牙白丝绸A字婚纱；中国成年新郎，黑色短发，深藏蓝无图案普通男士西服，白衬衫无领带，无肩章袖章、无制服徽章。绝不改变服装发型。" + s.Prompt
-		}
-		s.Prompt += "。开头衔接：" + s.EntryAction + "。结尾衔接：" + s.ExitAction + "。按正常速度自然运动，不要全程慢动作；无字幕、无文字。"
+
 	}
 	return plan.Synopsis, plan.Shots, nil
 }
@@ -224,7 +226,7 @@ func (p *Provider) Review(ctx context.Context, project *Project) (string, map[st
 	for _, s := range project.Shots {
 		shots = append(shots, map[string]string{"id": s.ID, "title": s.Title, "description": s.Description, "prompt": s.Prompt, "caption": s.Caption})
 	}
-	raw, _ := json.Marshal(map[string]any{"title": project.Title, "brief": project.Brief, "shots": shots})
+	raw, _ := json.Marshal(map[string]any{"title": project.Title, "brief": project.Brief, "custom_prompt": project.CustomPrompt, "treatment": project.Treatment, "shots": shots})
 	out, err := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]string{{"role": "system", "content": "你是婚礼电影的终审导演。已有分镜和部分已生成镜头，请审阅整体叙事，重写简洁优美的中文故事梗概与逐镜头字幕。保持已有画面语义，不改动人物设定，不添加未提供的真实经历。字幕每条最多15个汉字，形成从相遇到相守的自然推进，避免重复空泛抒情。只返回JSON对象：synopsis（100字以内中文）、captions（镜头id到字幕的对象，必须覆盖所有镜头）。"}, {"role": "user", "content": string(raw)}}, "reasoning_effort": "low", "max_tokens": 2200}, "")
 	if err != nil {
 		return "", nil, err

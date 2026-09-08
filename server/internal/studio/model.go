@@ -51,6 +51,9 @@ type Shot struct {
 	VideoFile        string  `json:"videoFile,omitempty"`
 	ThumbnailURL     string  `json:"thumbnailUrl,omitempty"`
 	Error            string  `json:"error,omitempty"`
+	ActID            string  `json:"actId,omitempty"`
+	LookID           string  `json:"lookId,omitempty"`
+	ChangeToLookID   string  `json:"changeToLookId,omitempty"`
 }
 type Event struct {
 	At      string `json:"at"`
@@ -92,6 +95,12 @@ type Project struct {
 	MusicSource      string         `json:"musicSource,omitempty"`
 	MusicTaskID      string         `json:"musicTaskId,omitempty"`
 	MusicFile        string         `json:"musicFile,omitempty"`
+	Occasion         string         `json:"occasion,omitempty"`
+	CustomPrompt     string         `json:"customPrompt,omitempty"`
+	WardrobeMode     string         `json:"wardrobeMode,omitempty"`
+	WardrobePrompt   string         `json:"wardrobePrompt,omitempty"`
+	EndingText       string         `json:"endingText,omitempty"`
+	Treatment        *Treatment     `json:"treatment,omitempty"`
 }
 type Store struct {
 	mu       sync.RWMutex
@@ -211,6 +220,9 @@ func validateProject(p *Project) error {
 	if len([]rune(p.Brief)) > 4000 {
 		return errors.New("故事描述不能超过 4000 字")
 	}
+	if err := validateCreativeSettings(p); err != nil {
+		return err
+	}
 	return nil
 }
 func isRunning(status string) bool {
@@ -244,8 +256,25 @@ func layout(p *Project) error {
 		}
 		if rhythmicStyle(p.Style) {
 			weightCursor += weights[i%len(weights)]
-			beatFrames := 1440.0 / float64(profileFor(p.Style).BPM)
-			next := int(math.Round(math.Round(float64(weightCursor*p.Duration*24)/float64(weightSum)/beatFrames) * beatFrames))
+			beatFrames := 1440.0 / float64(targetBPM(p))
+			ideal := float64(weightCursor*p.Duration*24) / float64(weightSum)
+			if p.Treatment != nil {
+				for ai, act := range p.Treatment.Acts {
+					if i+1 >= act.FirstShot && i+1 <= act.LastShot {
+						localTotal, localWeight := 0, 0
+						for j := act.FirstShot - 1; j < act.LastShot; j++ {
+							w := weights[(j-act.FirstShot+1)%len(weights)]
+							localTotal += w
+							if j <= i {
+								localWeight += w
+							}
+						}
+						ideal = (float64(ai) + float64(localWeight)/float64(localTotal)) * float64(p.Duration*24) / float64(len(p.Treatment.Acts))
+						break
+					}
+				}
+			}
+			next := int(math.Round(math.Round(ideal/beatFrames) * beatFrames))
 			if i == n-1 {
 				next = p.Duration * 24
 			}
@@ -271,6 +300,19 @@ func layout(p *Project) error {
 	}
 	if cursor != p.Duration*24 {
 		return errors.New("时间线时长不匹配")
+	}
+	if p.Treatment != nil {
+		for i := range p.Treatment.Acts {
+			act := &p.Treatment.Acts[i]
+			if act.FirstShot < 1 || act.LastShot > n || act.FirstShot > act.LastShot {
+				return errors.New("章节镜头范围无效")
+			}
+			act.Start = p.Shots[act.FirstShot-1].TimelineStart
+			act.End = float64(p.Duration)
+			if act.LastShot < n {
+				act.End = p.Shots[act.LastShot].TimelineStart
+			}
+		}
 	}
 	return nil
 }

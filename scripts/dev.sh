@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+export PATH="${NVM_DIR:+$NVM_DIR/versions/node/v22.23.2/bin:}/root/.nvm/versions/node/v22.23.2/bin:$PATH"
 if [[ ! -f .env ]]; then echo 'Copy .env.example to .env and configure StarNet and the backend token.' >&2; exit 1; fi
 export VOWFILM_ENV_FILE="$PWD/.env"
 export VOWFILM_DATA_DIR="$PWD/data"
@@ -10,7 +11,7 @@ env = dict(line.split('=', 1) for line in Path('.env').read_text().splitlines() 
 Path('.dev.vars').write_text('\n'.join(f'{key}={env.get(key, "")}' for key in ['GO_BACKEND_URL', 'GO_BACKEND_TOKEN']) + '\n')
 Path('.dev.vars').chmod(0o600)
 PY
-(cd server && go build -o bin/vowfilm ./cmd/server)
+(cd server && go build -buildvcs=false -o bin/vowfilm ./cmd/server)
 ./server/bin/vowfilm &
 backend_pid=$!
 trap 'kill "$backend_pid" 2>/dev/null || true' EXIT

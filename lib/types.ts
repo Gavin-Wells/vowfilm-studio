@@ -19,6 +19,9 @@ export type Shot = {
   videoUrl?: string;
   thumbnailUrl?: string;
   error?: string;
+  actId?: string;
+  lookId?: string;
+  changeToLookId?: string;
 };
 export type Asset = {
   id: string;
@@ -64,6 +67,35 @@ export type Project = {
   musicSource?: string;
   musicFile?: string;
   musicUrl?: string;
+  occasion?: string;
+  customPrompt?: string;
+  wardrobeMode?: string;
+  wardrobePrompt?: string;
+  endingText?: string;
+  treatment?: {
+    concept: string;
+    identityAnchor: string;
+    openingHook: string;
+    closingLine: string;
+    musicDirection: string;
+    bpm: number;
+    mustHave: string[];
+    avoid: string[];
+    notes: string[];
+    looks: { id: string; name: string; bride: string; groom: string }[];
+    acts: {
+      id: string;
+      title: string;
+      lookId: string;
+      setting: string;
+      storyBeat: string;
+      bridge: string;
+      firstShot: number;
+      lastShot: number;
+      start: number;
+      end: number;
+    }[];
+  };
 };
 export type StudioConfig = {
   connected: boolean;

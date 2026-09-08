@@ -71,6 +71,9 @@ func scoreSections(p *Project) []MusicSection {
 	}
 	result := []MusicSection{}
 	for i, s := range profiles {
+		if p.Treatment != nil {
+			s.instruments = []string{"主题动机引入", "第一主题展开", "对比主题 / 节奏留白", "主旋律变奏 / 情绪高潮", "主题回归 / 收束"}[i]
+		}
 		end := float64(p.Duration)
 		if i+1 < len(profiles) {
 			end = math.Round(profiles[i+1].ratio*float64(p.Duration)*24) / 24

@@ -229,6 +229,7 @@ func TestHTTPAuthValidationAndProjectLifecycle(t *testing.T) {
 	}
 	if err := a.store.Update(p.ID, func(q *Project) error {
 		q.MusicTaskID, q.MusicFile, q.MusicSource = "old-score", "old.mp3", "sonilo"
+		q.Treatment = &Treatment{Concept: "old interpretation"}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -236,7 +237,7 @@ func TestHTTPAuthValidationAndProjectLifecycle(t *testing.T) {
 	resp = request("PATCH", "/api/projects/"+p.ID, `{"title":"Wedding","brief":"celebrate","duration":60,"style":"joyful","ratio":"16:9"}`)
 	resp.Body.Close()
 	updated := a.store.Get(p.ID)
-	if resp.StatusCode != 200 || updated.MusicTaskID != "" || updated.MusicFile != "" || updated.MusicSource != "" || len(updated.MusicSections) != 5 {
+	if resp.StatusCode != 200 || updated.MusicTaskID != "" || updated.MusicFile != "" || updated.MusicSource != "" || updated.Treatment != nil || len(updated.MusicSections) != 5 {
 		t.Fatal("style change retained obsolete music")
 	}
 	resp = request("POST", "/api/projects/"+p.ID+"/generate", `{}`)

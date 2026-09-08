@@ -57,6 +57,23 @@ func ffmpeg(ctx context.Context, args ...string) error {
 func thumbnail(ctx context.Context, src, dst string) error {
 	return ffmpeg(ctx, "-ss", "2", "-i", src, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", dst)
 }
+func sourceTrimStart(p *Project, index int, duration float64) float64 {
+	if p.Treatment != nil {
+		if index == len(p.Shots)-1 && endHold(p) > 0 {
+			active := math.Max(1.0/24, p.Shots[index].EditSeconds-endHold(p))
+			return math.Max(0, duration-active-1.0/24)
+		}
+		if p.Shots[index].ChangeToLookID != "" {
+			// Preserve the outgoing occlusion/turn at the actual end of the source.
+			return math.Max(0, duration-p.Shots[index].EditSeconds-1.0/24)
+		}
+		if index > 0 && p.Shots[index-1].ChangeToLookID != "" {
+			// The incoming clip starts in the same occlusion before revealing the look.
+			return 0
+		}
+	}
+	return .25
+}
 func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	if len(p.Shots) == 0 {
 		return "", errors.New("缺少镜头")
@@ -78,8 +95,21 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 			return "", fmt.Errorf("镜头 %s 尚未完成", s.Title)
 		}
 		dest := filepath.Join(dir, fmt.Sprintf("edit-%02d.mp4", i))
+		source := filepath.Join(dir, s.VideoFile)
+		info, err := probe(ctx, source)
+		if err != nil {
+			return "", err
+		}
+		trim := sourceTrimStart(p, i, info.Duration)
 		filter := fmt.Sprintf("fps=24,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS", width, height, width, height)
-		if err := ffmpeg(ctx, "-ss", "0.25", "-i", filepath.Join(dir, s.VideoFile), "-an", "-vf", filter, "-frames:v", strconv.Itoa(s.EditFrames), "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-pix_fmt", "yuv420p", "-threads", "2", dest); err != nil {
+		if hold := endHold(p); i == len(p.Shots)-1 && hold > 0 {
+			activeFrames := s.EditFrames - int(hold*24)
+			if activeFrames < 1 {
+				return "", errors.New("片尾镜头不足以留画，请重新编排")
+			}
+			filter += fmt.Sprintf(",trim=end_frame=%d,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=%.2f", activeFrames, hold)
+		}
+		if err := ffmpeg(ctx, "-ss", fmt.Sprintf("%.6f", trim), "-i", source, "-an", "-vf", filter, "-frames:v", strconv.Itoa(s.EditFrames), "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-pix_fmt", "yuv420p", "-threads", "2", dest); err != nil {
 			return "", err
 		}
 		normalized = append(normalized, dest)
@@ -144,6 +174,11 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	if rhythmicStyle(p.Style) {
 		subtitleFilter = fmt.Sprintf("subtitles=filename='%s',fade=t=in:d=0.2,fade=t=out:st=%.2f:d=0.6", strings.ReplaceAll(subtitles, "'", "\\'"), float64(p.Duration)-0.6)
 	}
+	if hold := endHold(p); hold > 0 {
+		end := float64(p.Duration) - hold
+		subtitleFilter = fmt.Sprintf("trim=end_frame=%d,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=%.2f,subtitles=filename='%s',fade=t=in:d=0.2", int(end*24), hold, strings.ReplaceAll(subtitles, "'", "\\'"))
+		audio = fmt.Sprintf("[1:a]aresample=48000,loudnorm=I=-18:TP=-1.5:LRA=9,afade=t=in:d=0.8,afade=t=out:st=%.2f:d=2[a]", end-2)
+	}
 	comment := "Created with Vowfilm; AI-generated video"
 	if p.Demo {
 		comment += "; fictional wedding demo"
@@ -186,6 +221,32 @@ func makeASS(p *Project, width, height int) string {
 			}
 			fmt.Fprintf(&b, "Dialogue: 0,%s,%s,%s,,0,0,0,,{\\fad(%d,%d)}%s\n", assTime(start), assTime(end), style, fade, fade, assEscape(text))
 		}
+	}
+	if p.Treatment != nil {
+		header := b.String()
+		b.Reset()
+		header = strings.ReplaceAll(header, "Noto Serif CJK SC", "Noto Sans CJK SC")
+		captionSize, titleSize := 38, 58
+		if width < height {
+			captionSize, titleSize = 32, 44
+		}
+		header = strings.Replace(header, "CJK SC,27,", fmt.Sprintf("CJK SC,%d,", captionSize), 1)
+		header = strings.Replace(header, "CJK SC,48,", fmt.Sprintf("CJK SC,%d,", titleSize), 1)
+		// Bottom-center title, inside the screen-safe area; the final hold stays visible.
+		header = strings.Replace(header, "100,100,5,0,1,1,0,5,55,55,30,1", "100,100,1,0,1,2,1,2,80,80,90,1", 1)
+		b.WriteString(header)
+		line(.6, 3.7, "Title", p.Title)
+		for i, s := range p.Shots {
+			if i%4 == 2 && s.TimelineStart+s.EditSeconds < float64(p.Duration)-5 {
+				line(s.TimelineStart+.2, s.TimelineStart+s.EditSeconds-.15, "Caption", s.Caption)
+			}
+		}
+		// A near-zero fade at the end preserves the invitation on the last frame.
+		fmt.Fprintf(&b, "Dialogue: 1,%s,%s,Title,,0,0,0,,{\\fad(180,0)}%s\n", assTime(float64(p.Duration)-5), assTime(float64(p.Duration)), assEscape(p.Treatment.ClosingLine))
+		if p.Demo {
+			line(float64(p.Duration)-5, float64(p.Duration), "Small", "AI 创作演示 · 虚构人物与场景")
+		}
+		return b.String()
 	}
 	if rhythmicStyle(p.Style) {
 		header := b.String()

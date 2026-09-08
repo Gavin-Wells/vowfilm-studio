@@ -51,7 +51,14 @@ func (p *Provider) SubmitMusic(ctx context.Context, project *Project, mediaURL s
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	profile := profileFor(project.Style)
-	prompt := fmt.Sprintf("Compose one original instrumental wedding soundtrack, exactly %d seconds, %s. A memorable evolving lead melody and contrasting harmony, not an unchanging arpeggio. Five clearly differentiated sections: 0-13%% sparse acoustic pickup and anticipation; 13-40%% memorable playful melody, bass and light groove; 40-67%% contrasting relative-minor bridge, different melody, reduced percussion and breathing space; 67-87%% bright major-key chorus with full drums, melodic variation and celebratory lift; 87-100%% reprise, resolved final chord and a natural ending. Keep a steady %d BPM pulse through changes. Professional acoustic instruments, clean mix, no vocals, no speech, no unrelated sound effects. Match the scene changes and emotional flow of the video.", project.Duration, profile.Music, profile.BPM)
+	direction := profile.Music
+	if project.Treatment != nil {
+		direction = project.Treatment.MusicDirection
+	}
+	prompt := fmt.Sprintf("Compose one original instrumental wedding soundtrack, exactly %d seconds. Authoritative creative music direction: %s. Evolving lead melody, contrasting harmony and five differentiated sections: 0-13%% opening anticipation; 13-40%% melodic development; 40-67%% contrasting bridge and breathing space; 67-87%% celebratory climax; 87-100%% resolved coda. Keep a %d BPM pulse. Follow the creative direction for instruments and genre. No unchanging loop, vocals or speech. Match the picture edit and chapter transitions. Screening context: %s", project.Duration, direction, targetBPM(project), occasionDirection(project))
+	if endHold(project) > 0 {
+		prompt += fmt.Sprintf(" End the final musical resolution by %.1f seconds, then leave quiet space for the host.", float64(project.Duration)-endHold(project))
+	}
 	for k, v := range map[string]string{"video_url": mediaURL, "mode": "async", "output_format": "mp3", "variants_num": "1", "preserve_speech": "false", "ducking": "false", "prompt_influence": "1", "prompt": prompt} {
 		_ = w.WriteField(k, v)
 	}

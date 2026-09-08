@@ -47,3 +47,4 @@ next-env.d.ts
 # Generated film artifact is distributed in the delivery archive and Sites assets.
 /public/demo/*.mp4
 /public/demo/*.mp3
+/deliverables/

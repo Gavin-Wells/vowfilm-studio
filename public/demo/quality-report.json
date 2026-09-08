@@ -8,5 +8,44 @@
   "shots": 16,
   "technical_validation": "passed",
   "width": 1280,
-  "full_decode": "passed"
+  "full_decode": "passed",
+  "stage_hold_seconds": 3,
+  "stage_hold_mean_pixel_difference": 0.04804,
+  "stage_hold_validation": "passed",
+  "audio_sections": [
+    {
+      "start": 0,
+      "end": 8,
+      "rms_dbfs": -19.33
+    },
+    {
+      "start": 8,
+      "end": 24,
+      "rms_dbfs": -18.7
+    },
+    {
+      "start": 24,
+      "end": 40,
+      "rms_dbfs": -19.14
+    },
+    {
+      "start": 40,
+      "end": 52,
+      "rms_dbfs": -18.75
+    },
+    {
+      "start": 52,
+      "end": 57,
+      "rms_dbfs": -25.54
+    },
+    {
+      "start": 57.2,
+      "end": 60,
+      "rms_dbfs": -180.0
+    }
+  ],
+  "visual_review": "sampled_frames_and_both_wardrobe_boundaries",
+  "occlusion_matching": "prompt_guided_not_automated",
+  "music_perceptual_review": "not_performed",
+  "audio_validation": "track_integrity_levels_and_closing_silence"
 }

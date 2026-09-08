@@ -26,13 +26,6 @@ import {
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -44,6 +37,14 @@ import { Sidebar, SidebarProvider } from '@/components/ui/sidebar';
 import { Empty } from '@/components/ui/empty';
 import { Toaster, toast } from '@/components/ui/toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ChoiceSelect } from '@/components/choice-select';
+import { api } from '@/lib/api';
+import {
+  creativeDefaults,
+  occasions,
+  promptExamples,
+  styleChoices,
+} from '@/lib/creative';
 import type { Project, Shot, StudioConfig } from '@/lib/types';
 
 const styles: Record<string, string> = {
@@ -56,44 +57,6 @@ const styles: Record<string, string> = {
   seaside: '海边誓约',
   vintage: '复古胶片',
 };
-const styleChoices = [
-  {
-    id: 'joyful',
-    name: '欢快庆典',
-    hint: '明亮色彩、笑闹互动、轻快节拍',
-    bpm: 120,
-  },
-  {
-    id: 'romantic',
-    name: '浪漫电影',
-    hint: '亲密细节、柔和光线、弦乐起伏',
-    bpm: 96,
-  },
-  {
-    id: 'vintage',
-    name: '复古胶片',
-    hint: '暖调抓拍、轻盈摇摆、爵士色彩',
-    bpm: 108,
-  },
-  {
-    id: 'epic',
-    name: '史诗仪式',
-    hint: '空间层次、庄重仪式、管弦高潮',
-    bpm: 96,
-  },
-  {
-    id: 'travel',
-    name: '旅行纪实',
-    hint: '连贯移动、自然互动、自由感',
-    bpm: 120,
-  },
-  {
-    id: 'editorial',
-    name: '时尚短片',
-    hint: '利落构图、节奏切镜、视觉张力',
-    bpm: 120,
-  },
-];
 const transitions: Record<string, string> = {
   cut: '节拍切接',
   match: '动作 / 构图衔接',
@@ -123,51 +86,6 @@ const clock = (seconds: number) =>
     .padStart(2, '0')}:${Math.floor(seconds % 60)
     .toString()
     .padStart(2, '0')}`;
-async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers = new Headers(options?.headers);
-  if (!(options?.body instanceof FormData) && !headers.has('Content-Type'))
-    headers.set('Content-Type', 'application/json');
-  const response = await fetch(`/api/${path}`, {
-    signal: AbortSignal.timeout(options?.method ? 120000 : 10000),
-    ...options,
-    headers,
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(body.error || '创作服务暂时不可用，请稍后重试。');
-  }
-  return response.json();
-}
-function Choice({
-  value,
-  onChange,
-  items,
-  label,
-  id,
-}: {
-  value: string;
-  onChange: (s: string) => void;
-  items: { value: string; label: string }[];
-  label: string;
-  id?: string;
-}) {
-  return (
-    <Select value={value} onValueChange={(v) => v && onChange(v)} items={items}>
-      <SelectTrigger id={id} className="choice" aria-label={label}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {items.map((i) => (
-          <SelectItem key={i.value} value={i.value}>
-            {i.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
 function captionsURL(project: Project) {
   const time = (s: number) =>
     new Date(Math.max(0, s) * 1000).toISOString().slice(11, 23);
@@ -181,13 +99,14 @@ function captionsURL(project: Project) {
 }
 
 export default function Studio() {
+  const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [dialog, setDialog] = useState<'new' | 'settings' | null>(null);
+  const [dialog, setDialog] = useState(false);
   const [selectedShot, setSelectedShot] = useState<Shot | null>(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [tab, setTab] = useState('storyboard');
@@ -195,6 +114,7 @@ export default function Studio() {
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const [playback, setPlayback] = useState(0);
   const [draft, setDraft] = useState({
+    ...creativeDefaults,
     title: '',
     brief: '',
     duration: 60,
@@ -278,20 +198,18 @@ export default function Studio() {
   }
   function openNew() {
     if (offline || !config) return;
-    setDraft({
-      title: '',
-      brief: '',
-      duration: 60,
-      style: 'joyful',
-      ratio: '16:9',
-    });
-    setDialog('new');
+    router.push('/new');
   }
   function openSettings() {
     if (project && !offline) {
       setDraft({
         title: project.title,
         brief: project.brief,
+        occasion: project.occasion || 'opening',
+        customPrompt: project.customPrompt || '',
+        wardrobeMode: project.wardrobeMode || 'auto',
+        wardrobePrompt: project.wardrobePrompt || '',
+        endingText: project.endingText || '',
         duration: project.duration,
         style:
           project.style === 'garden'
@@ -301,23 +219,21 @@ export default function Studio() {
               : project.style,
         ratio: project.ratio,
       });
-      setDialog('settings');
+      setDialog(true);
     }
   }
   async function saveProject(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!project) return;
     setBusy(true);
     setError('');
     try {
-      const p = await api<Project>(
-        dialog === 'settings' ? `projects/${project?.id}` : 'projects',
-        {
-          method: dialog === 'settings' ? 'PATCH' : 'POST',
-          body: JSON.stringify(draft),
-        },
-      );
+      const p = await api<Project>(`projects/${project.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(draft),
+      });
       await refresh(p.id);
-      setDialog(null);
+      setDialog(false);
       setNotice('工程已保存');
     } catch (e) {
       setError((e as Error).message);
@@ -434,6 +350,11 @@ export default function Studio() {
         properties: {
           title: { type: 'string', minLength: 1 },
           brief: { type: 'string' },
+          customPrompt: { type: 'string', maxLength: 6000 },
+          occasion: { type: 'string', enum: ['opening', 'story', 'warmup'] },
+          wardrobeMode: { type: 'string', enum: ['auto', 'fixed', 'custom'] },
+          wardrobePrompt: { type: 'string', maxLength: 1500 },
+          endingText: { type: 'string', maxLength: 20 },
           duration: { type: 'integer', enum: [60, 120, 180, 240] },
         },
         required: ['title', 'duration'],
@@ -444,6 +365,11 @@ export default function Studio() {
         const value = input as {
           title: string;
           brief?: string;
+          customPrompt?: string;
+          occasion?: string;
+          wardrobeMode?: string;
+          wardrobePrompt?: string;
+          endingText?: string;
           duration: number;
         };
         if (
@@ -525,14 +451,19 @@ export default function Studio() {
           >
             <div className="rail-top">
               <span className="eyebrow">我的影片</span>
-              <button
-                className="icon-button"
-                aria-label="新建影片"
-                disabled={offline || !config}
-                onClick={openNew}
-              >
-                <Plus size={18} />
-              </button>
+              {offline || !config ? (
+                <button
+                  className="icon-button"
+                  aria-label="新建影片"
+                  disabled
+                >
+                  <Plus size={18} />
+                </button>
+              ) : (
+                <Link className="icon-button" href="/new" aria-label="新建影片">
+                  <Plus size={18} />
+                </Link>
+              )}
             </div>
             <div className="project-list">
               {projects.map((p) => (
@@ -561,14 +492,17 @@ export default function Studio() {
                 </button>
               ))}
             </div>
-            <button
-              className="new-project"
-              disabled={offline || !config}
-              onClick={openNew}
-            >
-              <Plus size={16} />
-              新建影片
-            </button>
+            {offline || !config ? (
+              <button className="new-project" disabled>
+                <Plus size={16} />
+                新建影片
+              </button>
+            ) : (
+              <Link className="new-project" href="/new">
+                <Plus size={16} />
+                新建影片
+              </Link>
+            )}
             <div className="rail-footer">
               <Aperture size={20} />
               <p>
@@ -596,13 +530,23 @@ export default function Studio() {
                 </div>
               </div>
               <div className="heading-actions">
-                <button
-                  className="secondary-button mobile-new"
-                  onClick={openNew}
-                  aria-label="新建影片"
-                >
-                  <Plus size={16} />
-                </button>
+                {offline || !config ? (
+                  <button
+                    className="secondary-button mobile-new"
+                    aria-label="新建影片"
+                    disabled
+                  >
+                    <Plus size={16} />
+                  </button>
+                ) : (
+                  <Link
+                    className="secondary-button mobile-new"
+                    href="/new"
+                    aria-label="新建影片"
+                  >
+                    <Plus size={16} />
+                  </Link>
+                )}
                 <button
                   className="secondary-button"
                   disabled={offline || !project || running}
@@ -678,6 +622,7 @@ export default function Studio() {
                       src={project.filmUrl}
                       poster={project.posterUrl || undefined}
                       controls
+                      loop={project.occasion === 'warmup'}
                       playsInline
                       preload="metadata"
                       onTimeUpdate={(e) =>
@@ -764,10 +709,16 @@ export default function Studio() {
                       '用光线写下相遇，用镜头收藏相伴。从一张照片，走进属于你们的电影。'}
                   </p>
                   <div className="direction-tags">
-                    <span>{styles[project?.style || 'joyful']}</span>
+                    <span>
+                      {project?.customPrompt
+                        ? '自定义导演要求'
+                        : styles[project?.style || 'joyful']}
+                    </span>
                     <span>
                       目标{' '}
-                      {styleChoices.find((s) => s.id === project?.style)?.bpm ||
+                      {project?.treatment?.bpm ||
+                        styleChoices.find((s) => s.id === project?.style)
+                          ?.bpm ||
                         96}{' '}
                       BPM
                     </span>
@@ -775,7 +726,7 @@ export default function Studio() {
                   </div>
                   <div className="story-divider" />
                   <div className="detail-line">
-                    <span>画面风格</span>
+                    <span>基础风格</span>
                     <strong>{styles[project?.style || 'garden']}</strong>
                   </div>
                   <div className="detail-line">
@@ -865,6 +816,10 @@ export default function Studio() {
                       {project?.shots.length || 0}
                     </span>
                   </TabsTrigger>
+                  <TabsTrigger value="treatment">
+                    <WandSparkles size={16} />
+                    导演方案
+                  </TabsTrigger>
                   <TabsTrigger value="assets">
                     <FolderOpen size={16} />
                     素材库{' '}
@@ -877,7 +832,7 @@ export default function Studio() {
                     制作记录
                   </TabsTrigger>
                 </TabsList>
-                {tab === 'storyboard' && (
+                {(tab === 'storyboard' || tab === 'treatment') && (
                   <button
                     className="text-button"
                     disabled={offline || busy || running || !project}
@@ -926,13 +881,19 @@ export default function Studio() {
                         </span>
                       </div>
                       <div className="shot-copy">
-                        <span className="shot-chapter">{shot.chapter}</span>
+                        <span className="shot-chapter">
+                          {shot.chapter}
+                          {shot.lookId &&
+                            ` · ${project.treatment?.looks.find((look) => look.id === shot.lookId)?.name || shot.lookId}`}
+                        </span>
                         <h3>{shot.title}</h3>
                         <p>{shot.description}</p>
                         <div>
                           <span>{shot.camera}</span>
                           <span>
-                            {transitions[shot.transition] || '自然切接'}{' '}
+                            {shot.changeToLookId
+                              ? '章节变装'
+                              : transitions[shot.transition] || '自然切接'}{' '}
                             <ArrowRight size={11} />
                           </span>
                         </div>
@@ -958,6 +919,143 @@ export default function Studio() {
                   </Empty>
                 )}
               </TabsContent>
+              <TabsContent value="treatment">
+                <section className="treatment-panel">
+                  <div className="treatment-heading">
+                    <div>
+                      <span className="chapter-label">为婚礼现场编排</span>
+                      <h2>{occasions[project?.occasion || 'opening']}</h2>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      disabled={offline || running || busy}
+                      onClick={openSettings}
+                    >
+                      <Settings2 size={15} />
+                      修改创作要求
+                    </button>
+                  </div>
+                  {project?.customPrompt && (
+                    <div className="director-request">
+                      <strong>你的 Prompt</strong>
+                      <p>{project.customPrompt}</p>
+                    </div>
+                  )}
+                  {project?.treatment ? (
+                    <>
+                      <p className="treatment-concept">
+                        {project.treatment.concept}
+                      </p>
+                      <div className="treatment-cues">
+                        <p>
+                          <strong>开头如何抓住注意</strong>
+                          {project.treatment.openingHook}
+                        </p>
+                        <p>
+                          <strong>如何交还现场</strong>
+                          {project.treatment.closingLine}
+                          {project.occasion !== 'warmup' && (
+                            <small>
+                              片尾留画 {project.occasion === 'story' ? 2 : 3}{' '}
+                              秒，音乐降至安静
+                            </small>
+                          )}
+                        </p>
+                      </div>
+                      <div className="treatment-acts">
+                        {project.treatment.acts.map((act, i) => {
+                          const look = project.treatment?.looks.find(
+                            (look) => look.id === act.lookId,
+                          );
+                          const next = project.treatment?.acts[i + 1];
+                          return (
+                            <article key={act.id}>
+                              <div className="act-heading">
+                                <span>{String(i + 1).padStart(2, '0')}</span>
+                                <div>
+                                  <h3>{act.title}</h3>
+                                  <small>
+                                    {clock(act.start)}–{clock(act.end)} · 镜头{' '}
+                                    {act.firstShot}–{act.lastShot}
+                                  </small>
+                                </div>
+                              </div>
+                              <p>{act.storyBeat}</p>
+                              <div className="act-setting">{act.setting}</div>
+                              <div className="look-detail">
+                                <strong>{look?.name}</strong>
+                                <p>新娘 · {look?.bride}</p>
+                                <p>新郎 · {look?.groom}</p>
+                              </div>
+                              {next && (
+                                <div className="wardrobe-bridge">
+                                  {next.lookId !== act.lookId
+                                    ? '换装衔接'
+                                    : '章节衔接'}{' '}
+                                  ·{' '}
+                                  {{
+                                    veil: '前景白纱遮挡',
+                                    spin: '同方向转身',
+                                    prop: '同一道具特写',
+                                    cut: '自然切接',
+                                  }[act.bridge] || '动作匹配'}
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
+                      </div>
+                      <div className="treatment-cues">
+                        <p>
+                          <strong>已采纳要求</strong>
+                          {project.treatment.mustHave.join('；') ||
+                            '按故事与风格规划'}
+                        </p>
+                        <p>
+                          <strong>避免出现</strong>
+                          {project.treatment.avoid.join('；') ||
+                            '不编造真实经历，不在同镜头内换脸变装'}
+                        </p>
+                      </div>
+                      <div className="director-request">
+                        <strong>
+                          音乐方向 · 目标 {project.treatment.bpm} BPM
+                        </strong>
+                        <p>{project.treatment.musicDirection}</p>
+                      </div>
+                      {!!project.treatment.notes?.length && (
+                        <div className="treatment-notes">
+                          <strong>导演说明</strong>
+                          {project.treatment.notes.map((note, i) => (
+                            <p key={i}>{note}</p>
+                          ))}
+                        </div>
+                      )}
+                      <p className="fine-print">
+                        这是生成前的导演方案。造型按章固定、换装点编入相邻镜头；实际人物一致性和遮挡效果仍需查看生成画面。
+                      </p>
+                    </>
+                  ) : (
+                    <Empty>
+                      <WandSparkles size={28} />
+                      <p>先把故事和造型排成一部影片</p>
+                      <span>
+                        编排后可查看三至四章叙事、每章造型、换装衔接与 Prompt
+                        的采纳情况。
+                      </span>
+                      <button
+                        className="primary-button"
+                        disabled={offline || running || busy || !project}
+                        onClick={() =>
+                          project && void action(`projects/${project.id}/plan`)
+                        }
+                      >
+                        生成导演方案与分镜
+                      </button>
+                    </Empty>
+                  )}
+                </section>
+              </TabsContent>
               <TabsContent value="assets">
                 <div className="asset-toolbar">
                   <div>
@@ -965,7 +1063,7 @@ export default function Studio() {
                     <p>上传参考照片或音乐。新人照片需绑定已授权的人物素材。</p>
                   </div>
                   <div className="upload-controls">
-                    <Choice
+                    <ChoiceSelect
                       value={uploadRole}
                       onChange={setUploadRole}
                       label="素材用途"
@@ -1148,7 +1246,8 @@ export default function Studio() {
                   </span>
                   <span className="score-tempo">
                     目标{' '}
-                    {styleChoices.find((s) => s.id === project.style)?.bpm ||
+                    {project.treatment?.bpm ||
+                      styleChoices.find((s) => s.id === project.style)?.bpm ||
                       96}{' '}
                     BPM
                   </span>
@@ -1236,18 +1335,14 @@ export default function Studio() {
           </main>
         </SidebarProvider>
         <Dialog
-          open={!!dialog}
-          onOpenChange={(open) => {
-            if (!open) setDialog(null);
-          }}
+          open={dialog}
+          onOpenChange={setDialog}
         >
           <DialogContent className="project-dialog">
             <DialogHeader>
-              <DialogTitle>
-                {dialog === 'settings' ? '创作设置' : '开启一部新影片'}
-              </DialogTitle>
+              <DialogTitle>创作设置</DialogTitle>
               <DialogDescription>
-                从一个想法开始，把重要的时刻交给镜头。
+                调整播放用途、故事素材与导演要求。保存后可在工作台继续创作。
               </DialogDescription>
             </DialogHeader>
             <form className="project-form" onSubmit={saveProject}>
@@ -1264,7 +1359,7 @@ export default function Studio() {
                 />
               </label>
               <label>
-                你想讲述的故事
+                你们的故事与事实素材
                 <textarea
                   rows={4}
                   maxLength={4000}
@@ -1272,13 +1367,115 @@ export default function Studio() {
                   onChange={(e) =>
                     setDraft({ ...draft, brief: e.target.value })
                   }
-                  placeholder="描述故事、场景和想表达的情绪。没有真人素材时，将创作虚构人物演示。"
+                  placeholder="填写确实发生的相遇、共同爱好、希望感谢的人。没有资料时用象征性情节，不编造真实经历。"
                 />
               </label>
+              <label htmlFor="project-occasion">
+                婚礼现场的播放环节
+                <ChoiceSelect
+                  id="project-occasion"
+                  value={draft.occasion}
+                  onChange={(occasion) => setDraft({ ...draft, occasion })}
+                  label="播放环节"
+                  items={Object.entries(occasions).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
+              </label>
+              <p className="fine-print">
+                {draft.occasion === 'opening'
+                  ? '抓住宾客注意 → 关系推进 → 正式亮相。片尾留画、降音乐，方便主持人接话。'
+                  : draft.occasion === 'story'
+                    ? '以真实经历串起关系变化，最后感谢亲友；不发出立即入场口令。'
+                    : '轻松、可重复观看；播放器自动循环，片尾不提示新人立即入场。'}
+              </p>
+              <label htmlFor="custom-prompt">
+                给导演的自定义 Prompt
+                <textarea
+                  id="custom-prompt"
+                  rows={5}
+                  maxLength={6000}
+                  value={draft.customPrompt}
+                  onChange={(e) =>
+                    setDraft({ ...draft, customPrompt: e.target.value })
+                  }
+                  placeholder="例如：日常装 → 中式礼服 → 婚纱西装，用白纱遮挡切接。不要群像；音乐从轻拨弦走向庆祝高潮，片尾写‘故事继续，主角登场’。"
+                />
+              </label>
+              <div className="prompt-inspiration" aria-label="追加创作灵感">
+                <span>追加灵感</span>
+                {promptExamples.map((example) => (
+                  <button
+                    type="button"
+                    key={example.name}
+                    onClick={() =>
+                      setDraft((value) => ({
+                        ...value,
+                        customPrompt: [value.customPrompt, example.text]
+                          .filter(Boolean)
+                          .join('\n')
+                          .slice(0, 6000),
+                      }))
+                    }
+                  >
+                    {example.name}
+                  </button>
+                ))}
+              </div>
+              <p className="fine-print">
+                你的具体要求优先于风格模板，参与故事、分镜与音乐规划。当前生成器乐配乐；可上传自己的旁白或音乐音轨。
+              </p>
+              <div className="form-row">
+                <label htmlFor="wardrobe-mode">
+                  造型变化
+                  <ChoiceSelect
+                    id="wardrobe-mode"
+                    value={draft.wardrobeMode}
+                    onChange={(wardrobeMode) =>
+                      setDraft({ ...draft, wardrobeMode })
+                    }
+                    label="造型变化"
+                    items={[
+                      { value: 'auto', label: '导演按章节安排 · 最多 3 套' },
+                      { value: 'fixed', label: '全片固定一套造型' },
+                      { value: 'custom', label: '自定义造型 · 最多 4 套' },
+                    ]}
+                  />
+                </label>
+                <label htmlFor="ending-text">
+                  片尾大字 · 可选
+                  <input
+                    id="ending-text"
+                    maxLength={20}
+                    value={draft.endingText}
+                    onChange={(e) =>
+                      setDraft({ ...draft, endingText: e.target.value })
+                    }
+                    placeholder="例如：故事继续，主角登场"
+                  />
+                </label>
+              </div>
+              {draft.wardrobeMode === 'custom' && (
+                <label htmlFor="wardrobe-prompt">
+                  每一套造型与出现顺序
+                  <textarea
+                    id="wardrobe-prompt"
+                    required
+                    rows={3}
+                    maxLength={1500}
+                    value={draft.wardrobePrompt}
+                    onChange={(e) =>
+                      setDraft({ ...draft, wardrobePrompt: e.target.value })
+                    }
+                    placeholder="第一章：米白日常裙、浅色衬衫；第二章：红色中式礼服；第三章：象牙白婚纱、黑色普通西装。人物面貌保持一致。"
+                  />
+                </label>
+              )}
               <div className="form-row">
                 <label htmlFor="project-duration">
                   时长
-                  <Choice
+                  <ChoiceSelect
                     id="project-duration"
                     value={String(draft.duration)}
                     onChange={(s) =>
@@ -1293,7 +1490,7 @@ export default function Studio() {
                 </label>
                 <label htmlFor="project-ratio">
                   画幅
-                  <Choice
+                  <ChoiceSelect
                     id="project-ratio"
                     value={draft.ratio}
                     onChange={(s) => setDraft({ ...draft, ratio: s })}
@@ -1306,7 +1503,7 @@ export default function Studio() {
                 </label>
               </div>
               <fieldset className="style-fieldset">
-                <legend>选择影片风格</legend>
+                <legend>选择基础风格参考</legend>
                 <RadioGroup
                   className="style-picker"
                   value={draft.style}
@@ -1334,7 +1531,7 @@ export default function Studio() {
                   ))}
                 </RadioGroup>
                 <p className="fine-print">
-                  风格将影响镜头内容、剪辑节奏、衔接方式和配乐编排。
+                  风格提供默认方向；你在 Prompt 中写明的内容会优先采用。
                 </p>
               </fieldset>
               {error && (
@@ -1348,7 +1545,7 @@ export default function Studio() {
                 ) : (
                   <Plus size={16} />
                 )}
-                {dialog === 'settings' ? '保存并重新设置工程' : '创建影片'}
+                保存并重新设置工程
               </button>
             </form>
           </DialogContent>
@@ -1375,6 +1572,20 @@ export default function Studio() {
                 preload="metadata"
                 poster={selectedShot.thumbnailUrl}
               />
+            )}
+            {selectedShot?.lookId && (
+              <div className="shot-look">
+                <strong>
+                  {project?.treatment?.looks.find(
+                    (look) => look.id === selectedShot.lookId,
+                  )?.name || selectedShot.lookId}
+                </strong>
+                <span>
+                  {selectedShot.changeToLookId
+                    ? `此镜结尾衔接下一套造型：${project?.treatment?.looks.find((look) => look.id === selectedShot.changeToLookId)?.name || selectedShot.changeToLookId}`
+                    : '本章内保持这套造型与人物身份'}
+                </span>
+              </div>
             )}
             {(selectedShot?.entryAction || selectedShot?.transitionReason) && (
               <div className="shot-continuity">

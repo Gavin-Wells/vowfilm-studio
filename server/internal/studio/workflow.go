@@ -220,6 +220,24 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 		}); err != nil {
 			return err
 		}
+		if p.Treatment == nil {
+			_ = a.store.Update(id, func(q *Project) error {
+				event(q, "GPT-6 正在理解自定义要求，规划现场叙事与分章造型")
+				return nil
+			})
+			treatment, err := a.provider.Develop(ctx, p)
+			if err != nil {
+				return fmt.Errorf("导演方案未完成：%w", err)
+			}
+			if err = a.store.Update(id, func(q *Project) error {
+				q.Treatment = treatment
+				event(q, "故事与造型方案已保存，正在编排动作与换装衔接")
+				return nil
+			}); err != nil {
+				return err
+			}
+			p = a.store.Get(id)
+		}
 		synopsis, shots, err := a.provider.Plan(ctx, p)
 		if err != nil {
 			return fmt.Errorf("分镜编排未完成：%w", err)
@@ -250,7 +268,7 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 		}
 	}
 	if mode != "render" {
-		if p.Style == "garden" && strings.Contains(p.VideoModel, "fast") {
+		if p.Treatment == nil && p.Style == "garden" && strings.Contains(p.VideoModel, "fast") {
 			a.importProbe(id)
 		}
 		p = a.store.Get(id)
@@ -382,7 +400,7 @@ func (a *App) references(p *Project) ([]map[string]any, string, error) {
 			u = "data:" + asset.MIME + ";base64," + base64.StdEncoding.EncodeToString(raw)
 		}
 		refs = append(refs, map[string]any{"type": "image_url", "image_url": map[string]string{"url": u}, "role": "reference_image"})
-		role := map[string]string{"bride": "新娘的人物身份与造型", "groom": "新郎的人物身份与造型", "reference": "环境和视觉风格，不替换人物身份"}[asset.Role]
+		role := map[string]string{"bride": "新娘的人物身份和面貌；服装按本镜造型要求", "groom": "新郎的人物身份和面貌；服装按本镜造型要求", "reference": "环境和视觉风格，不替换人物身份"}[asset.Role]
 		guides = append(guides, fmt.Sprintf("图片%d参考%s。", len(refs), role))
 	}
 	return refs, strings.Join(guides, ""), nil

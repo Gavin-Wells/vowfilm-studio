@@ -79,11 +79,16 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var p Project
 	var in struct {
-		Title    string `json:"title"`
-		Brief    string `json:"brief"`
-		Duration int    `json:"duration"`
-		Style    string `json:"style"`
-		Ratio    string `json:"ratio"`
+		Title          string `json:"title"`
+		Occasion       string `json:"occasion"`
+		CustomPrompt   string `json:"customPrompt"`
+		WardrobeMode   string `json:"wardrobeMode"`
+		WardrobePrompt string `json:"wardrobePrompt"`
+		EndingText     string `json:"endingText"`
+		Brief          string `json:"brief"`
+		Duration       int    `json:"duration"`
+		Style          string `json:"style"`
+		Ratio          string `json:"ratio"`
 	}
 	if err := decode(w, r, &in); err != nil {
 		fail(w, 400, err)
@@ -94,6 +99,13 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	p.Duration = in.Duration
 	p.Style = in.Style
 	p.Ratio = in.Ratio
+	p.Occasion, p.CustomPrompt, p.WardrobeMode, p.WardrobePrompt, p.EndingText = in.Occasion, in.CustomPrompt, in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
+	if p.Occasion == "" {
+		p.Occasion = "opening"
+	}
+	if p.WardrobeMode == "" {
+		p.WardrobeMode = "auto"
+	}
 	if err := validateProject(&p); err != nil {
 		fail(w, 400, err)
 		return
@@ -137,11 +149,16 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Method == "PATCH" {
 			var in struct {
-				Title    string `json:"title"`
-				Brief    string `json:"brief"`
-				Duration int    `json:"duration"`
-				Style    string `json:"style"`
-				Ratio    string `json:"ratio"`
+				Title          string `json:"title"`
+				Occasion       string `json:"occasion"`
+				CustomPrompt   string `json:"customPrompt"`
+				WardrobeMode   string `json:"wardrobeMode"`
+				WardrobePrompt string `json:"wardrobePrompt"`
+				EndingText     string `json:"endingText"`
+				Brief          string `json:"brief"`
+				Duration       int    `json:"duration"`
+				Style          string `json:"style"`
+				Ratio          string `json:"ratio"`
 			}
 			if err := decode(w, r, &in); err != nil {
 				fail(w, 400, err)
@@ -156,10 +173,13 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 				q.Duration = in.Duration
 				q.Style = in.Style
 				q.Ratio = in.Ratio
+				q.Occasion, q.CustomPrompt, q.WardrobeMode, q.WardrobePrompt, q.EndingText = in.Occasion, in.CustomPrompt, in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
 				if err := validateProject(q); err != nil {
 					return err
 				}
 				q.Shots = []Shot{}
+				q.Treatment = nil
+				q.PosterURL = ""
 				q.FilmURL = ""
 				q.MusicTaskID = ""
 				q.MusicFile = ""
