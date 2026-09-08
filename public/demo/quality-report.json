@@ -1,0 +1,11 @@
+{
+  "duration_seconds": 60,
+  "fictional_demo": true,
+  "fps": 24,
+  "height": 720,
+  "identity_validation": "not_automated",
+  "music": "original_procedural_piano",
+  "shots": 8,
+  "technical_validation": "passed",
+  "width": 1280
+}

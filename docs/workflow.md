@@ -1,0 +1,81 @@
+# Prompt 与工作流
+
+实际运行使用有边界的任务状态机；GPT‑6 负责语义创作，Go 负责可验证的帧数、任务和媒体处理。没有引入自主无限循环的 Agent。
+
+## 导演节点
+
+代码中的完整 Prompt 位于 `server/internal/studio/provider.go` 的 `directorPrompt`。
+
+输入包括片名、故事、风格、画幅、目标时长、每分钟 8 个镜头的数量，以及素材角色/名称。当前 LLM 读取素材描述与名称，照片由视频模型参考；未实现 LLM 图像内容自动分析。
+
+核心指令：
+
+> 只返回 JSON；按情绪推进，交替安排远景、中景与细节。每个镜头只有一个主动作和一种运镜，留出稳定头尾。统一发型、服装、人物方位与光线。约 70% 自然切接，其余柔和叠化。不得编造新人未提供的真实经历；字幕由后期添加，生成画面无文字、无音乐。
+
+输出例：
+
+```json
+{
+  "synopsis": "相遇从一束晨光开始，故事走向并肩的余生。",
+  "shots": [
+    {
+      "title": "并肩花径",
+      "chapter": "相伴",
+      "description": "新人沿白玫瑰花径缓缓前行",
+      "camera": "背后缓慢跟拍",
+      "caption": "两个人，同一个方向",
+      "transition": "cut",
+      "prompt": "成年虚构新人，新娘黑色低盘发、象牙白缎面婚纱，新郎黑色短发、深墨绿西装。两人沿白玫瑰花径缓慢前行，背后中远景跟拍，暖金色自然光。固定造型与左右位置，单一连续镜头，稳定头尾，无字幕、无文字、无背景音乐。"
+    }
+  ]
+}
+```
+
+服务端校验镜头数量、必要文本、指令长度，重置任务字段；LLM 不决定请求地址、鉴权、视频文件路径、预算或任务状态。完整分镜的字幕也可调用 `/review` 由当前 GPT‑6 重新审阅，保留原视频片段并重新合成。
+
+## 帧数与转场
+
+目标帧数 `N = 秒数 × 24`。自然切接的重叠为 0 帧，叠化重叠为 12 帧。片段需分配的总帧数是 `N + 所有转场重叠帧数`，整除分配后将余数逐帧分配到镜头，因此合成后的时长不会因为叠化而缩短。
+
+模型生成时长为 `ceil(镜头剪辑秒数 + 0.75)`，限定 4–15 秒，后期裁切到精确帧数。FFmpeg 将每个片段统一为 24 fps、相同画幅和时间基，再执行 concat / xfade；字幕使用 ASS，不依赖模型生成汉字。
+
+本版只有自然切接和 0.5 秒叠化，没有声称实现自动首尾帧接力、动作匹配、光流插帧或语义驱动转场模型。后续可在相邻镜头间增加视觉分析节点，以前镜头尾帧和后镜头首帧评估构图、运动与光色，决定是否需要生成过渡镜头。
+
+## 状态机与故障处理
+
+```text
+draft → planning → planned → generating → rendering → completed
+                    ↑            ↓            ↓
+                    └──── failed / cancelled ─┘
+```
+
+- 每次有副作用的提交前保存秒数预算和尝试编号。
+- 幂等键包含工程、修订、镜头、尝试：`vowfilm:<project>:r<revision>:<shot>:a<attempt>`。
+- 云端返回任务 ID 后持久化；轮询失败不立即重新提交视频。
+- 下载只接受配置内已知视频 CDN 的 HTTPS 地址，限制文件大小并拒绝重定向。
+- 已完成片段经 ffprobe 检查后留在磁盘；继续生成跳过已完成镜头。
+- 合成使用本地 FFmpeg，失败可仅重新合成，无须再次调用视频模型。
+- 导出 `quality-report.json` 记录技术检查结果；人物身份验证明确为 `not_automated`。
+
+## HTTP 接口
+
+浏览器通过同源 `/api` 访问。直接调用 Go 时必须携带 `X-Vowfilm-Token`；只有 `/healthz` 无须认证。
+
+| 请求                                            | 行为                                           |
+| ----------------------------------------------- | ---------------------------------------------- |
+| `GET /api/config`                               | 模型名、连接配置、时长上限和并发数；不返回密钥 |
+| `GET/POST /api/projects`                        | 列表 / 创建工程                                |
+| `GET/PATCH /api/projects/{id}`                  | 读取 / 修改创作设置并重置分镜                  |
+| `POST /api/projects/{id}/plan`                  | 仅编排分镜                                     |
+| `POST /api/projects/{id}/generate`              | 一键生成或继续                                 |
+| `POST /api/projects/{id}/review`                | 当前 LLM 审阅梗概/字幕，保留片段再合成         |
+| `POST /api/projects/{id}/render`                | 仅重新合成                                     |
+| `POST /api/projects/{id}/cancel`                | 暂停本地制作任务                               |
+| `POST /api/projects/{id}/assets`                | multipart `file` + `role` 上传                 |
+| `PATCH /api/projects/{id}/assets/{asset}`       | 绑定 `providerAssetId`                         |
+| `PATCH /api/projects/{id}/shots/{shot}`         | 修改 `prompt`                                  |
+| `POST /api/projects/{id}/shots/{shot}/generate` | 局部重做并合成                                 |
+| `GET /api/projects/{id}/export`                 | 下载 JSON 工程                                 |
+| `GET /api/media/{id}/{filename}`                | 媒体播放，支持 Range；`?download=1` 下载       |
+
+本次接口依据星网网关实际文档及调用结果实现。不同 Seedance 型号在实名授权、参考图和首尾帧方面可能有不同约束，切换型号时需要重新验证适配器。
