@@ -91,4 +91,4 @@ go test -race ./...
 
 实际验证 60 秒横屏成片；其他时长与竖屏通过编排测试，未逐一付费生成完整影片。成片检查完整解码、音视频轨道并抽帧审阅。没有自动人脸或手部质量检测，不保证每次人物服装和动作完全一致。当前环境未进行浏览器自动化或 WebMCP 浏览器调用验收。
 
-当前 Go 和素材隧道由本机 `vowfilm-studio.service`、`vowfilm-tunnel.service` 常驻运行。机器或隧道停止后无法新生成；隧道重启后需更新网页连接地址与 `PUBLIC_MEDIA_BASE_URL`。正式运行请使用固定 HTTPS 服务器并备份 `data/`。
+当前网页、Go 和素材隧道由本机 `vowfilm-web.service`、`vowfilm-studio.service`、`vowfilm-tunnel.service` 常驻运行。机器或隧道停止后无法新生成；隧道重启后需更新网页连接地址与 `PUBLIC_MEDIA_BASE_URL`。正式运行请使用固定 HTTPS 服务器并备份 `data/`。
