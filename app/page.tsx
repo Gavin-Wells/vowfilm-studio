@@ -99,7 +99,6 @@ function captionsURL(project: Project) {
 }
 
 export default function Studio() {
-  const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [config, setConfig] = useState<StudioConfig | null>(null);
@@ -195,10 +194,6 @@ export default function Studio() {
     } finally {
       setBusy(false);
     }
-  }
-  function openNew() {
-    if (offline || !config) return;
-    router.push('/new');
   }
   function openSettings() {
     if (project && !offline) {
