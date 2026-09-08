@@ -43,12 +43,62 @@ import { Progress } from '@/components/ui/progress';
 import { Sidebar, SidebarProvider } from '@/components/ui/sidebar';
 import { Empty } from '@/components/ui/empty';
 import { Toaster, toast } from '@/components/ui/toast';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import type { Project, Shot, StudioConfig } from '@/lib/types';
 
 const styles: Record<string, string> = {
+  joyful: '欢快庆典',
+  romantic: '浪漫电影',
+  epic: '史诗仪式',
+  travel: '旅行纪实',
+  editorial: '时尚短片',
   garden: '花园电影',
   seaside: '海边誓约',
-  vintage: '胶片回忆',
+  vintage: '复古胶片',
+};
+const styleChoices = [
+  {
+    id: 'joyful',
+    name: '欢快庆典',
+    hint: '明亮色彩、笑闹互动、轻快节拍',
+    bpm: 120,
+  },
+  {
+    id: 'romantic',
+    name: '浪漫电影',
+    hint: '亲密细节、柔和光线、弦乐起伏',
+    bpm: 96,
+  },
+  {
+    id: 'vintage',
+    name: '复古胶片',
+    hint: '暖调抓拍、轻盈摇摆、爵士色彩',
+    bpm: 108,
+  },
+  {
+    id: 'epic',
+    name: '史诗仪式',
+    hint: '空间层次、庄重仪式、管弦高潮',
+    bpm: 96,
+  },
+  {
+    id: 'travel',
+    name: '旅行纪实',
+    hint: '连贯移动、自然互动、自由感',
+    bpm: 120,
+  },
+  {
+    id: 'editorial',
+    name: '时尚短片',
+    hint: '利落构图、节奏切镜、视觉张力',
+    bpm: 120,
+  },
+];
+const transitions: Record<string, string> = {
+  cut: '节拍切接',
+  match: '动作 / 构图衔接',
+  dissolve: '情绪叠化',
+  dipwhite: '闪光转场',
 };
 const statuses: Record<string, string> = {
   draft: '等待创作',
@@ -148,7 +198,7 @@ export default function Studio() {
     title: '',
     brief: '',
     duration: 60,
-    style: 'garden',
+    style: 'joyful',
     ratio: '16:9',
   });
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -172,9 +222,13 @@ export default function Studio() {
       .then(([list, settings]) => {
         setProjects(list);
         setConfig(settings);
-        if (list[0]) {
-          activeID.current = list[0].id;
-          setProject(list[0]);
+        const requested = new URLSearchParams(window.location.search).get(
+          'project',
+        );
+        const first = list.find((p) => p.id === requested) || list[0];
+        if (first) {
+          activeID.current = first.id;
+          setProject(first);
         }
       })
       .catch(async (e) => {
@@ -228,7 +282,7 @@ export default function Studio() {
       title: '',
       brief: '',
       duration: 60,
-      style: 'garden',
+      style: 'joyful',
       ratio: '16:9',
     });
     setDialog('new');
@@ -239,7 +293,12 @@ export default function Studio() {
         title: project.title,
         brief: project.brief,
         duration: project.duration,
-        style: project.style,
+        style:
+          project.style === 'garden'
+            ? 'romantic'
+            : project.style === 'seaside'
+              ? 'travel'
+              : project.style,
         ratio: project.ratio,
       });
       setDialog('settings');
@@ -396,7 +455,7 @@ export default function Studio() {
           throw new Error('需要片名和有效时长');
         const p = await api<Project>('projects', {
           method: 'POST',
-          body: JSON.stringify({ ...value, style: 'garden', ratio: '16:9' }),
+          body: JSON.stringify({ ...value, style: 'joyful', ratio: '16:9' }),
         });
         await refresh(p.id);
         return { id: p.id, status: p.status };
@@ -603,7 +662,12 @@ export default function Studio() {
                     {project?.filmUrl ? '成片预览' : '创作预览'}
                   </span>
                   <span>
-                    720P <b> / </b> {project?.ratio || '16:9'}
+                    {(project?.videoModel || config?.videoModel)?.includes(
+                      'mini',
+                    )
+                      ? 'SD2 MINI'
+                      : 'SEEDANCE'}{' '}
+                    <b> / </b> 720P
                   </span>
                 </div>
                 <div className="film-viewer">
@@ -700,9 +764,14 @@ export default function Studio() {
                       '用光线写下相遇，用镜头收藏相伴。从一张照片，走进属于你们的电影。'}
                   </p>
                   <div className="direction-tags">
-                    <span>自然光影</span>
-                    <span>情绪叙事</span>
-                    <span>连续转场</span>
+                    <span>{styles[project?.style || 'joyful']}</span>
+                    <span>
+                      目标{' '}
+                      {styleChoices.find((s) => s.id === project?.style)?.bpm ||
+                        96}{' '}
+                      BPM
+                    </span>
+                    <span>分段情绪设计</span>
                   </div>
                   <div className="story-divider" />
                   <div className="detail-line">
@@ -722,7 +791,11 @@ export default function Studio() {
                     <strong>
                       {project?.assets.some((a) => a.role === 'music')
                         ? '已上传配乐'
-                        : '原创钢琴配乐'}
+                        : project?.musicSource === 'sonilo'
+                          ? 'AI 分段配乐'
+                          : project?.musicSections?.length
+                            ? '五段情绪配乐'
+                            : '原创钢琴配乐'}
                     </strong>
                   </div>
                   <div className="generation-area">
@@ -859,9 +932,7 @@ export default function Studio() {
                         <div>
                           <span>{shot.camera}</span>
                           <span>
-                            {shot.transition === 'cut'
-                              ? '自然切接'
-                              : '柔和叠化'}{' '}
+                            {transitions[shot.transition] || '自然切接'}{' '}
                             <ArrowRight size={11} />
                           </span>
                         </div>
@@ -1071,10 +1142,60 @@ export default function Studio() {
                   <span>
                     {project.assets.some((a) => a.role === 'music')
                       ? '项目配乐'
-                      : 'A promise in light · 原创钢琴'}
+                      : project.musicSource === 'sonilo'
+                        ? 'AI 配乐 · 为这部影片创作'
+                        : '影片配乐'}
                   </span>
-                  <div className="audio-pattern" aria-hidden="true" />
+                  <span className="score-tempo">
+                    目标{' '}
+                    {styleChoices.find((s) => s.id === project.style)?.bpm ||
+                      96}{' '}
+                    BPM
+                  </span>
                 </div>
+                {!!project.musicSections?.length && (
+                  <div className="score-sections" aria-label="分段配乐设计">
+                    {project.musicSections.map((section) => (
+                      <button
+                        key={section.name}
+                        style={{ flex: section.end - section.start }}
+                        title={`${section.instruments} · ${clock(section.start)}–${clock(section.end)}`}
+                        onClick={() => {
+                          if (video.current)
+                            video.current.currentTime = section.start;
+                        }}
+                      >
+                        <div
+                          className="score-energy"
+                          style={{ height: `${section.energy * 0.35 + 8}px` }}
+                        />
+                        <strong>{section.name}</strong>
+                        <small>{clock(section.start)}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {(project.musicFile || project.musicUrl) && (
+                  <div className="score-audition">
+                    <span>单独试听配乐</span>
+                    <audio
+                      controls
+                      preload="none"
+                      src={
+                        project.musicUrl ||
+                        `/api/media/${project.id}/${project.musicFile}`
+                      }
+                      aria-label="影片配乐试听"
+                    >
+                      <track
+                        kind="captions"
+                        src="data:text/vtt,WEBVTT%0A%0A00:00:00.000%20--%3E%2000:04:00.000%0A%5B%E7%BA%AF%E9%9F%B3%E4%B9%90%5D"
+                        srcLang="zh"
+                        label="纯音乐"
+                      />
+                    </audio>
+                  </div>
+                )}
               </section>
             ) : null}
             <footer className="workspace-footer">
@@ -1184,19 +1305,38 @@ export default function Studio() {
                   />
                 </label>
               </div>
-              <label htmlFor="project-style">
-                影像风格
-                <Choice
-                  id="project-style"
+              <fieldset className="style-fieldset">
+                <legend>选择影片风格</legend>
+                <RadioGroup
+                  className="style-picker"
                   value={draft.style}
-                  onChange={(s) => setDraft({ ...draft, style: s })}
-                  label="影像风格"
-                  items={Object.entries(styles).map(([value, label]) => ({
-                    value,
-                    label,
-                  }))}
-                />
-              </label>
+                  onValueChange={(value) =>
+                    setDraft({ ...draft, style: String(value) })
+                  }
+                  aria-label="影片风格"
+                >
+                  {styleChoices.map((style) => (
+                    <label
+                      key={style.id}
+                      htmlFor={`style-${style.id}`}
+                      className={`style-option ${draft.style === style.id ? 'selected' : ''}`}
+                    >
+                      <div>
+                        <RadioGroupItem
+                          id={`style-${style.id}`}
+                          value={style.id}
+                        />
+                        <strong>{style.name}</strong>
+                        <span>{style.bpm} BPM</span>
+                      </div>
+                      <small>{style.hint}</small>
+                    </label>
+                  ))}
+                </RadioGroup>
+                <p className="fine-print">
+                  风格将影响镜头内容、剪辑节奏、衔接方式和配乐编排。
+                </p>
+              </fieldset>
               {error && (
                 <p className="inline-error" role="alert">
                   {error}
@@ -1235,6 +1375,22 @@ export default function Studio() {
                 preload="metadata"
                 poster={selectedShot.thumbnailUrl}
               />
+            )}
+            {(selectedShot?.entryAction || selectedShot?.transitionReason) && (
+              <div className="shot-continuity">
+                <p>
+                  <strong>入场</strong>
+                  {selectedShot.entryAction}
+                </p>
+                <p>
+                  <strong>出场</strong>
+                  {selectedShot.exitAction}
+                </p>
+                <p>
+                  <strong>衔接</strong>
+                  {selectedShot.transitionReason}
+                </p>
+              </div>
             )}
             <label className="prompt-label">
               镜头生成指令

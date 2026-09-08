@@ -94,12 +94,17 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	cursor := p.Shots[0].EditSeconds
 	for i := 1; i < len(p.Shots); i++ {
 		out := fmt.Sprintf("joined%d", i)
-		if p.Shots[i-1].Transition == "cut" {
+		if overlapFrames(p.Shots[i-1].Transition) == 0 {
 			filters = append(filters, fmt.Sprintf("[%s][v%d]concat=n=2:v=1:a=0,settb=AVTB[%s]", label, i, out))
 			cursor += p.Shots[i].EditSeconds
 		} else {
-			filters = append(filters, fmt.Sprintf("[%s][v%d]xfade=transition=fade:duration=0.5:offset=%.6f,settb=AVTB[%s]", label, i, cursor-.5, out))
-			cursor += p.Shots[i].EditSeconds - .5
+			fade := float64(overlapFrames(p.Shots[i-1].Transition)) / 24
+			effect := "fade"
+			if p.Shots[i-1].Transition == "dipwhite" {
+				effect = "fadewhite"
+			}
+			filters = append(filters, fmt.Sprintf("[%s][v%d]xfade=transition=%s:duration=%.6f:offset=%.6f,settb=AVTB[%s]", label, i, effect, fade, cursor-fade, out))
+			cursor += p.Shots[i].EditSeconds - fade
 		}
 		label = out
 	}
@@ -117,7 +122,13 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 			break
 		}
 	}
-	if !custom {
+	if !custom && rhythmicStyle(p.Style) {
+		generated, err := a.generatedSoundtrack(ctx, p)
+		if err != nil {
+			return "", err
+		}
+		music = generated
+	} else if !custom {
 		if err := composeMusic(music, p.Duration); err != nil {
 			return "", err
 		}
@@ -130,6 +141,9 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	dest := filepath.Join(dir, name)
 	audio := fmt.Sprintf("[1:a]aresample=48000,loudnorm=I=-18:TP=-1.5:LRA=9,afade=t=in:d=2,afade=t=out:st=%d:d=3[a]", p.Duration-3)
 	subtitleFilter := fmt.Sprintf("subtitles=filename='%s',fade=t=in:d=0.8,fade=t=out:st=%d:d=1.8", strings.ReplaceAll(subtitles, "'", "\\'"), p.Duration-2)
+	if rhythmicStyle(p.Style) {
+		subtitleFilter = fmt.Sprintf("subtitles=filename='%s',fade=t=in:d=0.2,fade=t=out:st=%.2f:d=0.6", strings.ReplaceAll(subtitles, "'", "\\'"), float64(p.Duration)-0.6)
+	}
 	comment := "Created with Vowfilm; AI-generated video"
 	if p.Demo {
 		comment += "; fictional wedding demo"
@@ -144,7 +158,7 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	if math.Abs(info.Duration-float64(p.Duration)) > 1.0/24+0.01 || info.Width != width || info.Height != height {
 		return "", errors.New("成片时长或尺寸验收未通过")
 	}
-	qa, _ := json.MarshalIndent(map[string]any{"duration_seconds": info.Duration, "width": width, "height": height, "fps": 24, "technical_validation": "passed", "identity_validation": "not_automated", "fictional_demo": p.Demo, "shots": len(p.Shots), "music": map[bool]string{true: "user_supplied", false: "original_procedural_piano"}[custom]}, "", "  ")
+	qa, _ := json.MarshalIndent(map[string]any{"duration_seconds": info.Duration, "width": width, "height": height, "fps": 24, "technical_validation": "passed", "identity_validation": "not_automated", "fictional_demo": p.Demo, "shots": len(p.Shots), "music": map[bool]string{true: "user_supplied", false: map[bool]string{true: "sonilo_generated", false: "original_procedural_piano"}[rhythmicStyle(p.Style) && a.cfg.PublicMediaURL != ""]}[custom]}, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, "quality-report.json"), qa, 0600)
 	return name, nil
 }
@@ -166,8 +180,31 @@ func makeASS(p *Project, width, height int) string {
 	b.WriteString("Style: Caption,Noto Serif CJK SC,27,&H00F4F6EF,&H00FFFFFF,&H800B100D,&H80000000,0,0,0,0,100,100,3,0,1,1,0,2,65,65,58,1\nStyle: Title,Noto Serif CJK SC,48,&H00F8F8F1,&H00FFFFFF,&H700B100D,&H80000000,0,0,0,0,100,100,5,0,1,1,0,5,55,55,30,1\nStyle: Small,Noto Sans CJK SC,16,&H00E0E7DD,&H00FFFFFF,&H700B100D,&H80000000,0,0,0,0,100,100,4,0,1,1,0,2,50,50,35,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 	line := func(start, end float64, style, text string) {
 		if end > start {
-			fmt.Fprintf(&b, "Dialogue: 0,%s,%s,%s,,0,0,0,,{\\fad(450,450)}%s\n", assTime(start), assTime(end), style, assEscape(text))
+			fade := 450
+			if rhythmicStyle(p.Style) {
+				fade = 130
+			}
+			fmt.Fprintf(&b, "Dialogue: 0,%s,%s,%s,,0,0,0,,{\\fad(%d,%d)}%s\n", assTime(start), assTime(end), style, fade, fade, assEscape(text))
 		}
+	}
+	if rhythmicStyle(p.Style) {
+		header := b.String()
+		b.Reset()
+		header = strings.ReplaceAll(header, "Noto Serif CJK SC", "Noto Sans CJK SC")
+		header = strings.Replace(header, "100,100,5,0,1,1,0,5,55,55,30,1", "100,100,2,0,1,2,1,1,55,55,65,1", 1)
+		b.WriteString(header)
+		line(.45, 2.7, "Title", p.Title)
+		for i, s := range p.Shots {
+			if i%3 == 1 && i < len(p.Shots)-1 {
+				line(s.TimelineStart+.3, s.TimelineStart+s.EditSeconds-.25, "Caption", s.Caption)
+			}
+		}
+		closing := map[string]string{"joyful": "所有快乐，都想和你", "romantic": "每一次心动，都有你", "vintage": "下一帧，还是你", "epic": "从此，同行每一程", "travel": "下一站，一起出发", "editorial": "我们，自成一派"}[p.Style]
+		line(float64(p.Duration)-3.3, float64(p.Duration)-.7, "Title", closing)
+		if p.Demo {
+			line(float64(p.Duration)-3.3, float64(p.Duration)-.7, "Small", "AI 创作演示 · 虚构人物与场景")
+		}
+		return b.String()
 	}
 	line(1, 5.8, "Title", p.Title)
 	line(1.4, 5.8, "Small", "A PROMISE IN LIGHT")

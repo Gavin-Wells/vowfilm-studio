@@ -1533,3 +1533,130 @@ textarea {
   background: #202a23;
   color: #c8d9ca;
 }
+
+.style-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.style-fieldset legend {
+  color: #e9eeeb;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.style-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.project-form .style-option {
+  border: 1px solid #435448;
+  background: #19231d;
+  padding: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: block;
+}
+.project-form .style-option.selected {
+  border-color: var(--primary);
+  background: #2e4133;
+}
+.style-option > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.style-option strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.style-option > div > span {
+  margin-left: auto;
+  color: #b7c9bb;
+  font-size: 10px;
+}
+.style-option small {
+  display: block;
+  color: #aebeb2;
+  font-size: 12px;
+  margin-top: 7px;
+}
+.score-tempo {
+  margin-left: auto;
+  color: #c9ddca;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.score-sections {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  padding-top: 15px;
+}
+.score-sections button {
+  background: #25332a;
+  border: 1px solid #435748;
+  color: #cce0cf;
+  border-radius: 5px;
+  min-width: 0;
+  text-align: left;
+  padding: 9px;
+}
+.score-sections button:hover {
+  border-color: var(--primary);
+}
+.score-energy {
+  border-radius: 3px;
+  background: linear-gradient(0deg, #6a977a, #d0deb1);
+  opacity: 0.75;
+  margin-bottom: 8px;
+}
+.score-sections strong,
+.score-sections small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+}
+.score-sections small {
+  color: #9fb6a5;
+  margin-top: 2px;
+}
+.score-audition {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-top: 14px;
+  color: #b6c7bb;
+  font-size: 12px;
+}
+.score-audition audio {
+  height: 30px;
+  width: min(400px, 75%);
+}
+.shot-continuity {
+  padding: 12px 14px;
+  background: #213128;
+  border-radius: 7px;
+  display: grid;
+  gap: 7px;
+  color: #c0d2c3;
+  font-size: 13px;
+}
+.shot-continuity strong {
+  color: #e3efdc;
+  margin-right: 12px;
+  font-weight: 500;
+}
+@media (max-width: 600px) {
+  .style-picker {
+    grid-template-columns: 1fr;
+  }
+  .score-sections button {
+    padding: 6px;
+  }
+  .score-sections strong {
+    font-size: 10px;
+  }
+}

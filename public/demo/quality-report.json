@@ -4,8 +4,9 @@
   "fps": 24,
   "height": 720,
   "identity_validation": "not_automated",
-  "music": "original_procedural_piano",
-  "shots": 8,
+  "music": "sonilo_generated",
+  "shots": 16,
   "technical_validation": "passed",
-  "width": 1280
+  "width": 1280,
+  "full_decode": "passed"
 }

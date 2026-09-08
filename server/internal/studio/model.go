@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,8 +15,8 @@ import (
 )
 
 type Config struct {
-	DataDir, BaseURL, APIKey, LLMModel, VideoModel, Token, Addr string
-	Concurrency                                                 int
+	DataDir, BaseURL, APIKey, LLMModel, VideoModel, Token, Addr, PublicMediaURL string
+	Concurrency                                                                 int
 }
 type Asset struct {
 	ID              string `json:"id"`
@@ -27,56 +28,70 @@ type Asset struct {
 	ProviderAssetID string `json:"providerAssetId,omitempty"`
 }
 type Shot struct {
-	ID            string  `json:"id"`
-	Title         string  `json:"title"`
-	Chapter       string  `json:"chapter"`
-	Description   string  `json:"description"`
-	Camera        string  `json:"camera"`
-	Prompt        string  `json:"prompt"`
-	Caption       string  `json:"caption"`
-	Transition    string  `json:"transition"`
-	Duration      int     `json:"duration"`
-	EditSeconds   float64 `json:"editSeconds"`
-	EditFrames    int     `json:"editFrames"`
-	TimelineStart float64 `json:"timelineStart"`
-	Status        string  `json:"status"`
-	TaskID        string  `json:"taskId,omitempty"`
-	Attempt       int     `json:"attempt"`
-	Reserved      bool    `json:"reserved"`
-	VideoURL      string  `json:"videoUrl,omitempty"`
-	VideoFile     string  `json:"videoFile,omitempty"`
-	ThumbnailURL  string  `json:"thumbnailUrl,omitempty"`
-	Error         string  `json:"error,omitempty"`
+	ID               string  `json:"id"`
+	Title            string  `json:"title"`
+	Chapter          string  `json:"chapter"`
+	Description      string  `json:"description"`
+	Camera           string  `json:"camera"`
+	Prompt           string  `json:"prompt"`
+	Caption          string  `json:"caption"`
+	Transition       string  `json:"transition"`
+	EntryAction      string  `json:"entryAction,omitempty"`
+	ExitAction       string  `json:"exitAction,omitempty"`
+	TransitionReason string  `json:"transitionReason,omitempty"`
+	Duration         int     `json:"duration"`
+	EditSeconds      float64 `json:"editSeconds"`
+	EditFrames       int     `json:"editFrames"`
+	TimelineStart    float64 `json:"timelineStart"`
+	Status           string  `json:"status"`
+	TaskID           string  `json:"taskId,omitempty"`
+	Attempt          int     `json:"attempt"`
+	Reserved         bool    `json:"reserved"`
+	VideoURL         string  `json:"videoUrl,omitempty"`
+	VideoFile        string  `json:"videoFile,omitempty"`
+	ThumbnailURL     string  `json:"thumbnailUrl,omitempty"`
+	Error            string  `json:"error,omitempty"`
 }
 type Event struct {
 	At      string `json:"at"`
 	Message string `json:"message"`
 }
+type MusicSection struct {
+	Name        string  `json:"name"`
+	Start       float64 `json:"start"`
+	End         float64 `json:"end"`
+	Instruments string  `json:"instruments"`
+	Energy      int     `json:"energy"`
+}
 type Project struct {
-	ID               string  `json:"id"`
-	Title            string  `json:"title"`
-	Brief            string  `json:"brief"`
-	Duration         int     `json:"duration"`
-	Style            string  `json:"style"`
-	Ratio            string  `json:"ratio"`
-	Status           string  `json:"status"`
-	Progress         int     `json:"progress"`
-	Message          string  `json:"message"`
-	Synopsis         string  `json:"synopsis"`
-	Demo             bool    `json:"demo"`
-	Shots            []Shot  `json:"shots"`
-	Assets           []Asset `json:"assets"`
-	Events           []Event `json:"events"`
-	FilmURL          string  `json:"filmUrl,omitempty"`
-	PosterURL        string  `json:"posterUrl,omitempty"`
-	OutputResolution string  `json:"outputResolution"`
-	CreatedAt        string  `json:"createdAt"`
-	UpdatedAt        string  `json:"updatedAt"`
-	Revision         int     `json:"revision"`
-	GeneratedSeconds int     `json:"generatedSeconds"`
-	GenerationBudget int     `json:"generationBudget"`
-	LLMModel         string  `json:"llmModel"`
-	VideoModel       string  `json:"videoModel"`
+	ID               string         `json:"id"`
+	Title            string         `json:"title"`
+	Brief            string         `json:"brief"`
+	Duration         int            `json:"duration"`
+	Style            string         `json:"style"`
+	Ratio            string         `json:"ratio"`
+	Status           string         `json:"status"`
+	Progress         int            `json:"progress"`
+	Message          string         `json:"message"`
+	Synopsis         string         `json:"synopsis"`
+	Demo             bool           `json:"demo"`
+	Shots            []Shot         `json:"shots"`
+	Assets           []Asset        `json:"assets"`
+	Events           []Event        `json:"events"`
+	FilmURL          string         `json:"filmUrl,omitempty"`
+	PosterURL        string         `json:"posterUrl,omitempty"`
+	OutputResolution string         `json:"outputResolution"`
+	CreatedAt        string         `json:"createdAt"`
+	UpdatedAt        string         `json:"updatedAt"`
+	Revision         int            `json:"revision"`
+	GeneratedSeconds int            `json:"generatedSeconds"`
+	GenerationBudget int            `json:"generationBudget"`
+	LLMModel         string         `json:"llmModel"`
+	VideoModel       string         `json:"videoModel"`
+	MusicSections    []MusicSection `json:"musicSections,omitempty"`
+	MusicSource      string         `json:"musicSource,omitempty"`
+	MusicTaskID      string         `json:"musicTaskId,omitempty"`
+	MusicFile        string         `json:"musicFile,omitempty"`
 }
 type Store struct {
 	mu       sync.RWMutex
@@ -190,7 +205,7 @@ func validateProject(p *Project) error {
 	if p.Ratio != "16:9" && p.Ratio != "9:16" {
 		return errors.New("画幅请选择 16:9 或 9:16")
 	}
-	if p.Style != "garden" && p.Style != "seaside" && p.Style != "vintage" {
+	if !validStyle(p.Style) {
 		return errors.New("不支持的影片风格")
 	}
 	if len([]rune(p.Brief)) > 4000 {
@@ -208,18 +223,36 @@ func layout(p *Project) error {
 	}
 	overlap := 0
 	for i := 0; i < n-1; i++ {
-		if p.Shots[i].Transition != "cut" {
-			overlap += 12
-		}
+		overlap += overlapFrames(p.Shots[i].Transition)
 	}
 	total := p.Duration*24 + overlap
 	base, extra := total/n, total%n
 	cursor := 0
+	// Cuts land on a half-second beat grid for the 120 BPM styles. Vary shot
+	// lengths to create an opening, build, bridge, celebration and coda.
+	weights := []int{6, 6, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8}
+	weightSum := 0
+	for i := range p.Shots {
+		weightSum += weights[i%len(weights)]
+	}
+	weightCursor := 0
 	for i := range p.Shots {
 		s := &p.Shots[i]
 		s.EditFrames = base
 		if i < extra {
 			s.EditFrames++
+		}
+		if rhythmicStyle(p.Style) {
+			weightCursor += weights[i%len(weights)]
+			beatFrames := 1440.0 / float64(profileFor(p.Style).BPM)
+			next := int(math.Round(math.Round(float64(weightCursor*p.Duration*24)/float64(weightSum)/beatFrames) * beatFrames))
+			if i == n-1 {
+				next = p.Duration * 24
+			}
+			s.EditFrames = next - cursor
+			if i < n-1 {
+				s.EditFrames += overlapFrames(s.Transition)
+			}
 		}
 		s.EditSeconds = float64(s.EditFrames) / 24
 		s.TimelineStart = float64(cursor) / 24
@@ -232,8 +265,8 @@ func layout(p *Project) error {
 		}
 		s.Duration = need
 		cursor += s.EditFrames
-		if i < n-1 && s.Transition != "cut" {
-			cursor -= 12
+		if i < n-1 {
+			cursor -= overlapFrames(s.Transition)
 		}
 	}
 	if cursor != p.Duration*24 {

@@ -7,6 +7,9 @@ export type Shot = {
   prompt: string;
   caption: string;
   transition: string;
+  entryAction?: string;
+  exitAction?: string;
+  transitionReason?: string;
   duration: number;
   editSeconds: number;
   timelineStart: number;
@@ -51,6 +54,16 @@ export type Project = {
   generationBudget: number;
   llmModel?: string;
   videoModel?: string;
+  musicSections?: {
+    name: string;
+    start: number;
+    end: number;
+    instruments: string;
+    energy: number;
+  }[];
+  musicSource?: string;
+  musicFile?: string;
+  musicUrl?: string;
 };
 export type StudioConfig = {
   connected: boolean;
@@ -58,4 +71,13 @@ export type StudioConfig = {
   videoModel: string;
   maxDuration: number;
   generationConcurrency: number;
+  styles?: {
+    id: string;
+    name: string;
+    description: string;
+    bpm: number;
+    shotsPerMinute: number;
+    direction: string;
+    music: string;
+  }[];
 };

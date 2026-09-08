@@ -46,13 +46,17 @@ func (a *App) Handler() http.Handler {
 			respond(w, 200, map[string]string{"status": "ok"})
 			return
 		}
+		if a.validMediaShare(r) {
+			a.mediaHTTP(w, r)
+			return
+		}
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Vowfilm-Token")), []byte(a.cfg.Token)) != 1 {
 			fail(w, 401, errors.New("需要有效的创作服务凭证"))
 			return
 		}
 		switch {
 		case r.URL.Path == "/api/config" && r.Method == "GET":
-			respond(w, 200, map[string]any{"connected": a.cfg.APIKey != "", "llmModel": a.cfg.LLMModel, "videoModel": a.cfg.VideoModel, "maxDuration": 240, "generationConcurrency": a.cfg.Concurrency})
+			respond(w, 200, map[string]any{"connected": a.cfg.APIKey != "", "llmModel": a.cfg.LLMModel, "videoModel": a.cfg.VideoModel, "maxDuration": 240, "styles": filmStyles, "generationConcurrency": a.cfg.Concurrency})
 		case r.URL.Path == "/api/projects":
 			a.projectsHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/projects/"):
@@ -157,6 +161,10 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 				q.Shots = []Shot{}
 				q.FilmURL = ""
+				q.MusicTaskID = ""
+				q.MusicFile = ""
+				q.MusicSource = ""
+				q.MusicSections = scoreSections(q)
 				q.Status = "draft"
 				q.Progress = 0
 				q.Revision++

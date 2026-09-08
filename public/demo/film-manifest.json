@@ -1,15 +1,22 @@
 {
-  "file": "a-promise-in-light.mp4",
-  "sha256": "82a1c75c052bfd73226a8178e4ff76ff6581b84a4bc408d38ab28aef89c378b7",
-  "bytes": 18326211,
-  "duration_seconds": 60,
+  "file": "joy-together.mp4",
+  "sha256": "f2acb5c5bf314e2a32020791337f05eefb764fc2f3fe23aced64100be0288aa3",
+  "bytes": 13135448,
+  "duration_seconds": 60.01,
   "width": 1280,
   "height": 720,
-  "fps": 24,
+  "fps": "24/1",
   "video_codec": "h264",
   "audio_codec": "aac",
   "audio_sample_rate": 48000,
+  "audio_channels": 2,
   "generated_artifact": true,
   "fictional_demo": true,
-  "source_project": "film_demo"
+  "source_project": "film_d0808333ee7007ba1146",
+  "llm_model": "openai/gpt-6-astra",
+  "video_model": "volcengine/doubao-seedance-2-0-mini-260615",
+  "music_source": "sonilo",
+  "full_decode": "passed",
+  "music_file": "joy-together-score.mp3",
+  "music_sha256": "3e3cf3a4ac5607800faab9d039ca726ea841b8206a3278b9448587f4f7f28bb6"
 }

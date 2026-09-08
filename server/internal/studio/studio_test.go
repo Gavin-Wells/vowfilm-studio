@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTimelineExactAcrossDurationsAndTransitions(t *testing.T) {
@@ -18,8 +21,11 @@ func TestTimelineExactAcrossDurationsAndTransitions(t *testing.T) {
 			p := &Project{Duration: seconds, Shots: make([]Shot, seconds/60*8)}
 			for i := range p.Shots {
 				p.Shots[i] = Shot{ID: "shot", Transition: kind}
-				if kind == "mixed" && i%3 != 0 {
-					p.Shots[i].Transition = "cut"
+				if kind == "mixed" {
+					p.Shots[i].Transition = "dissolve"
+					if i%3 != 0 {
+						p.Shots[i].Transition = "cut"
+					}
 				}
 			}
 			if err := layout(p); err != nil {
@@ -39,6 +45,79 @@ func TestTimelineExactAcrossDurationsAndTransitions(t *testing.T) {
 				t.Fatalf("%d %s: %d frames", seconds, kind, frames)
 			}
 		}
+	}
+}
+func TestRhythmicStylesAndTransitionHandles(t *testing.T) {
+	for _, style := range filmStyles {
+		for _, duration := range []int{60, 120, 180, 240} {
+			p := &Project{Style: style.ID, Duration: duration, Shots: make([]Shot, duration/60*style.ShotsPerMinute)}
+			for i := range p.Shots {
+				p.Shots[i].Transition = "match"
+			}
+			p.Shots[3].Transition = "dipwhite"
+			if err := layout(p); err != nil {
+				t.Fatal(err)
+			}
+			frames := 0
+			for i, s := range p.Shots {
+				frames += s.EditFrames
+				if i == 3 {
+					frames -= 3
+				}
+				beatFrames := 1440.0 / float64(style.BPM)
+				if math.Abs(s.TimelineStart*24-math.Round(s.TimelineStart*24/beatFrames)*beatFrames) > .51 {
+					t.Fatal("cut does not land on beat grid")
+				}
+				if s.EditSeconds+.25 > float64(s.Duration) {
+					t.Fatal("insufficient source handles")
+				}
+			}
+			if frames != duration*24 {
+				t.Fatal("wrong final frame count")
+			}
+			if p.Shots[0].EditFrames == p.Shots[6].EditFrames {
+				t.Fatal("style lost variable pacing")
+			}
+			sections := scoreSections(p)
+			if len(sections) != 5 || sections[4].End != float64(duration) {
+				t.Fatal("score structure does not cover film")
+			}
+		}
+	}
+}
+func TestMediaShareIsScopedAndExpires(t *testing.T) {
+	a := &App{cfg: Config{Token: strings.Repeat("k", 32)}}
+	path := "/api/media/film_demo/picture-edit.mp4"
+	expires := strconv.FormatInt(time.Now().Add(time.Minute).Unix(), 10)
+	r := httptest.NewRequest("GET", path+"?expires="+expires+"&signature="+a.mediaSignature(path, expires), nil)
+	if !a.validMediaShare(r) {
+		t.Fatal("signed clip unavailable")
+	}
+	r.URL.Path = "/api/media/another/movie.mp4"
+	if a.validMediaShare(r) {
+		t.Fatal("signature accepted for other clip")
+	}
+	r.URL.Path = path
+	r.Method = "POST"
+	if a.validMediaShare(r) {
+		t.Fatal("read signature grants write")
+	}
+	r.Method = "GET"
+	expired := strconv.FormatInt(time.Now().Add(-time.Minute).Unix(), 10)
+	r.URL.RawQuery = "expires=" + expired + "&signature=" + a.mediaSignature(path, expired)
+	if a.validMediaShare(r) {
+		t.Fatal("expired link accepted")
+	}
+}
+func TestNativeAudioArchiveResponse(t *testing.T) {
+	var raw any
+	_ = json.Unmarshal([]byte(`{"status":"succeeded","audio":[{"url":{"asset_id":"ast_example123","source_replaced":"remote_url"}}]}`), &raw)
+	if archivedAssetID(raw) != "ast_example123" {
+		t.Fatal("native audio archive lost")
+	}
+	_ = json.Unmarshal([]byte(`{"audio":[{"url":{"asset_id":"ast_../../secret"}}]}`), &raw)
+	if archivedAssetID(raw) != "" {
+		t.Fatal("invalid archive path accepted")
 	}
 }
 func TestStorePersistenceAndRollback(t *testing.T) {
@@ -147,6 +226,18 @@ func TestHTTPAuthValidationAndProjectLifecycle(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 201 || p.ID == "" || p.GenerationBudget != 180 {
 		t.Fatal("project creation failed")
+	}
+	if err := a.store.Update(p.ID, func(q *Project) error {
+		q.MusicTaskID, q.MusicFile, q.MusicSource = "old-score", "old.mp3", "sonilo"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp = request("PATCH", "/api/projects/"+p.ID, `{"title":"Wedding","brief":"celebrate","duration":60,"style":"joyful","ratio":"16:9"}`)
+	resp.Body.Close()
+	updated := a.store.Get(p.ID)
+	if resp.StatusCode != 200 || updated.MusicTaskID != "" || updated.MusicFile != "" || updated.MusicSource != "" || len(updated.MusicSections) != 5 {
+		t.Fatal("style change retained obsolete music")
 	}
 	resp = request("POST", "/api/projects/"+p.ID+"/generate", `{}`)
 	resp.Body.Close()

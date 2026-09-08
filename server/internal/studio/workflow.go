@@ -36,7 +36,7 @@ func New(cfg Config) (*App, error) {
 	}
 	a := &App{cfg: cfg, store: s, provider: newProvider(cfg), running: map[string]context.CancelFunc{}, slots: make(chan struct{}, cfg.Concurrency)}
 	if len(s.List()) == 0 {
-		p := &Project{ID: "film_demo", Title: "把余生写成我们", Brief: "制作一部60秒的原创虚构婚礼电影。晨光花园、白玫瑰、石砌别墅与橄榄树构成统一场景。虚构成年新娘黑色低盘发、象牙白缎面婚纱；虚构成年新郎黑色短发、深墨绿西装。通过花园、婚礼细节、两人相伴、牵手与夕阳远景，讲述从相遇到相守的情绪。画面真实细腻，优先远景、背影与手部细节；不出现具体真人身份或虚构真实经历。", Duration: 60, Style: "garden", Ratio: "16:9", Status: "draft", Demo: true, Shots: []Shot{}, Assets: []Asset{}, Events: []Event{}, CreatedAt: now(), UpdatedAt: now(), Revision: 1, GenerationBudget: 180, OutputResolution: "720P", LLMModel: cfg.LLMModel, VideoModel: cfg.VideoModel}
+		p := &Project{ID: "film_demo", Title: "与你，快乐加倍", Brief: "制作60秒欢快婚礼短片，阳光海边花园、统一成年虚构新人、自然笑容、牵手起跑、转圈、朋友抛花瓣与碰杯庆祝，最后拥抱收尾。用动作和构图衔接镜头，配合有旋律和段落变化的欢快音乐。", Duration: 60, Style: "joyful", Ratio: "16:9", Status: "draft", Demo: true, Shots: []Shot{}, Assets: []Asset{}, Events: []Event{}, CreatedAt: now(), UpdatedAt: now(), Revision: 1, GenerationBudget: 180, OutputResolution: "720P", LLMModel: cfg.LLMModel, VideoModel: cfg.VideoModel}
 		event(p, "演示工程已创建，使用虚构人物与原创配乐")
 		if err = s.Put(p); err != nil {
 			return nil, err
@@ -227,6 +227,10 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 		if err = a.store.Update(id, func(q *Project) error {
 			q.Synopsis = synopsis
 			q.Shots = shots
+			q.MusicSections = scoreSections(q)
+			q.MusicTaskID = ""
+			q.MusicFile = ""
+			q.MusicSource = ""
 			q.Revision++
 			q.FilmURL = ""
 			q.LLMModel = a.cfg.LLMModel
@@ -246,7 +250,9 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 		}
 	}
 	if mode != "render" {
-		a.importProbe(id)
+		if p.Style == "garden" && strings.Contains(p.VideoModel, "fast") {
+			a.importProbe(id)
+		}
 		p = a.store.Get(id)
 		refs, guide, err := a.references(p)
 		if err != nil {
@@ -460,7 +466,7 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 		} else {
 			failures = 0
 		}
-		if status == "succeeded" {
+		if status == "succeeded" && err == nil && u != "" {
 			source = u
 			break
 		}

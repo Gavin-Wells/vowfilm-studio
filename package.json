@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
-    "start": "wrangler dev --config dist/server/wrangler.json",
+    "start": "wrangler dev --config dist/server/wrangler.json --env-file .dev.vars --ip 127.0.0.1 --port 5179",
     "lint": "oxlint",
     "format": "oxfmt"
   },
