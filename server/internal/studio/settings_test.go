@@ -11,12 +11,12 @@ import (
 func TestProviderSettingsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	base := Config{
-		DataDir:    dir,
-		BaseURL:    "https://default.example",
-		APIKey:     "default-key",
-		LLMModel:   "default-llm",
-		VideoModel: "default-video",
-		Token:      strings.Repeat("x", 32),
+		DataDir:     dir,
+		BaseURL:     "https://default.example",
+		APIKey:      "default-key",
+		LLMModel:    "default-llm",
+		VideoModel:  "default-video",
+		Token:       strings.Repeat("x", 32),
 		Concurrency: 1,
 	}
 	a, err := New(base)
@@ -25,10 +25,13 @@ func TestProviderSettingsRoundTrip(t *testing.T) {
 	}
 	srv := httptest.NewServer(a.Handler())
 	defer srv.Close()
+	session := testSession(t, a)
 	request := func(method, path, body string) *http.Response {
 		r, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
 		r.Header.Set("X-Vowfilm-Token", base.Token)
 		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Vowfilm-CSRF", "1")
+		r.AddCookie(&http.Cookie{Name: "vowfilm_session", Value: session})
 		resp, e := http.DefaultClient.Do(r)
 		if e != nil {
 			t.Fatal(e)

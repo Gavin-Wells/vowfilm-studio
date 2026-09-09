@@ -1,6 +1,6 @@
 # 誓光 Vowfilm Studio
 
-React + Go 婚礼视频工作台：现场用途、自定义 Prompt、章节变装、风格选择、GPT‑6 导演与分镜、SD2 Mini 视频生成、动作衔接、按节拍剪辑、AI 配乐、局部重做与成片下载。
+React + Go 多场景 AI 视频工作台：现场用途、自定义 Prompt、章节变装、风格选择、GPT‑6 导演与分镜、SD2 Mini 视频生成、动作衔接、按节拍剪辑、AI 配乐、局部重做与成片下载。
 
 默认 LLM：星网 `openai/gpt-6-astra`。默认视频模型：**SD2 Mini**，完整标识 `volcengine/doubao-seedance-2-0-mini-260615`。
 
@@ -13,6 +13,16 @@ React + Go 婚礼视频工作台：现场用途、自定义 Prompt、章节变�
 MP4 属于生成产物，随交付 ZIP 和网站资源分发，不进入 Git 历史。`public/demo/film-manifest.json` 记录 SHA-256 和媒体规格。单独克隆源码时可从交付包补充演示文件；在线创作不依赖演示归档。
 
 已完成工程可用 `python3 scripts/export-demo.py 工程ID --name today-our-story` 重新导出演示归档；脚本压缩影片、验证完整解码、复制配乐和分镜缩略图，并清理云端任务标识。
+
+## 账号、计费、权限与多场景
+
+登录系统支持密码登录、注册、退出全部设备、修改密码和一次性恢复码找回；角色为管理员、创作者、只读成员与财务人员，权限由后端校验。
+
+计费支持按次、按任务、按秒、按镜头，场景系数、起步价、最低价和版本快照。执行前报价，额度不足不提交任务；成功结算，失败释放。现阶段采用管理员凭据核验充值，未接真实支付。详见 [数学模型](docs/platform-model.md)。
+
+创作场景包括婚礼影片、家族传承、爱情纪念、电商营销。电商使用 v3 广告提示词，通过一个视频任务直出 15 秒有声广告，默认竖屏，保留商品素材与真实卖点约束。其他场景继续使用多镜头编排、配乐与合成。
+
+后端按领域、应用服务、仓库、HTTP 接口分层，支持 SQLite 与 PostgreSQL。切换配置与数据迁移见 [后端架构](docs/backend-architecture.md)。
 
 ## 婚礼现场、自定义 Prompt 与变装
 
@@ -51,7 +61,7 @@ MP4 属于生成产物，随交付 ZIP 和网站资源分发，不进入 Git 历
 
 ## 本地运行
 
-需要 Node.js ≥ 22.13、Go ≥ 1.23、Python 3、FFmpeg/ffprobe（libx264、libass）及 Noto CJK 字体。
+需要 Node.js ≥ 22.13、Go ≥ 1.26、Python 3、FFmpeg/ffprobe（libx264、libass）及 Noto CJK 字体。
 
 ```bash
 npm ci
@@ -60,7 +70,7 @@ cp .env.example .env
 bash scripts/dev.sh
 ```
 
-打开 `http://localhost:5179`。新建影片走 `/new` 全页流程；创作引擎 API 可在 `/settings` 页面配置，也会持久化到 `data/provider.json`。
+打开 `http://localhost:5179`。首次创建管理员时，初始化密钥位于 `data/admin-setup.txt`；注册完成后保存一次性恢复码。普通注册账号为创作者，无默认密码、无自动赠送积分。管理员在 `/admin` 核验充值、管理角色与发布价格；用户在 `/billing` 查看余额与账单。新建影片走 `/new` 全页流程；创作引擎 API 可在 `/settings` 页面配置，也会持久化到 `data/provider.json`。
 
 脚本同时启动 Go 与 React，退出时关闭它启动的 Go。若本机已有 Go 服务在跑，可只运行 `npm run dev -- --host 127.0.0.1 --port 5179`，避免重复占用端口。
 
@@ -96,7 +106,7 @@ bash scripts/dev.sh
 - 动作/构图切接为主，最多两处叠化或短闪白。欢快、旅行、时尚风格不采用慢叠化。匹配依赖生成指令，目前没有自动视觉匹配检测或光流转场。
 - FFmpeg 统一画幅与 24 fps，烧录中文标题和字幕、混音并验收时长。
 - Sonilo 读取一小时有效、限定单个文件的签名视频 URL；签名不授予修改权限。
-- 单进程 JSON 原子保存、本地媒体、秒数预算、幂等提交、恢复与 CDN 下载校验，适合单用户 MVP；多人生产需数据库、队列和对象存储。
+- 单进程数据库事务保存、本地媒体、秒数预算、幂等提交、恢复与 CDN 下载校验，支持独立账号与项目隔离；当前单 Go 实例，多实例生产需队列与对象存储。
 - 视频生成预算为成片时长的 3 倍，每镜最多 3 次有编号提交。这不是人民币账单，不包含 LLM 与音乐费用。
 
 `server/internal/studio/` 下：`provider.go` 包含分镜 Prompt，`treatment.go` 包含现场用途、导演方案 Prompt 与造型约束；`style.go` 是风格库；`model.go` 编排帧数；`workflow.go` 管理任务；`soundtrack.go` 生成配乐并签名素材；`render.go` 剪辑与排字幕。详见 [工作流说明](docs/workflow.md)。
@@ -116,3 +126,5 @@ go test -race ./...
 实际验证 60 秒横屏成片；其他时长与竖屏通过编排测试，未逐一付费生成完整影片。成片检查完整解码、音视频轨道并抽帧审阅。没有自动人脸或手部质量检测，不保证每次人物服装和动作完全一致。
 
 生产部署可用 systemd 或进程管理器分别常驻 Go 与网页服务；需要 HTTPS 素材地址时配置 `PUBLIC_MEDIA_BASE_URL` 并备份 `data/`。
+
+电商广告模板来源、阶段契约与真实测试说明见 [广告提示词接入](docs/advertising-prompts.md)。创作设置可直接在工作台的「导演手记」编辑与保存。

@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 import {
   Aperture,
   ArrowRight,
@@ -36,13 +37,19 @@ import { Progress } from '@/components/ui/progress';
 import { Sidebar, SidebarProvider } from '@/components/ui/sidebar';
 import { Empty } from '@/components/ui/empty';
 import { Toaster, toast } from '@/components/ui/toast';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { DirectorSettings } from '@/components/director-settings';
 import { ChoiceSelect } from '@/components/choice-select';
 import { api } from '@/lib/api';
+import { TaskQuote } from '@/components/task-quote';
+import { useAccount } from '@/components/account-provider';
+import type { Quote } from '@/lib/platform';
 import {
   creativeDefaults,
   occasions,
-  promptExamples,
+  projectDraft,
+  changeScene,
+  sceneChoices,
+  sceneChoice,
   styleChoices,
 } from '@/lib/creative';
 import type { Project, Shot, StudioConfig } from '@/lib/types';
@@ -90,22 +97,29 @@ function captionsURL(project: Project) {
   const time = (s: number) =>
     new Date(Math.max(0, s) * 1000).toISOString().slice(11, 23);
   const cues = project.shots
+    .filter((s) => s.caption.trim())
     .map(
       (s) =>
         `${time(s.timelineStart + 1)} --> ${time(s.timelineStart + s.editSeconds - 1)}\n${s.caption.replaceAll('-->', '—')}`,
     )
     .join('\n\n');
-  return `data:text/vtt;charset=utf-8,${encodeURIComponent(`WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n[背景配乐]\n\n${cues}\n`)}`;
+  const intro =
+    project.scene === 'commerce'
+      ? ''
+      : '00:00:00.000 --> 00:00:01.000\n[背景配乐]\n\n';
+  return `data:text/vtt;charset=utf-8,${encodeURIComponent(`WEBVTT\n\n${intro}${cues}\n`)}`;
 }
 
 export default function Studio() {
+  const { auth, refresh: refreshAccount } = useAccount();
+  const canWrite = !!auth?.permissions.includes('project:write');
+  const [quote, setQuote] = useState<Quote | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [dialog, setDialog] = useState(false);
   const [selectedShot, setSelectedShot] = useState<Shot | null>(null);
   const [editPrompt, setEditPrompt] = useState('');
   const [tab, setTab] = useState('storyboard');
@@ -120,6 +134,8 @@ export default function Studio() {
     style: 'joyful',
     ratio: '16:9',
   });
+  const draftProjectID = useRef<string | null>(null);
+  const directorNotes = useRef<HTMLElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const activeID = useRef<string | null>(null);
@@ -182,10 +198,27 @@ export default function Studio() {
   const setNotice = (title: string) =>
     toast.add({ title, type: 'success', timeout: 5000 });
   async function action(path: string) {
-    if (offline) return;
+    if (offline || !canWrite) return;
     setBusy(true);
     setError('');
     try {
+      if (!path.endsWith('/cancel')) {
+        if (draftDirty) {
+          openSettings();
+          throw new Error('请先保存导演手记中的修改，再开始编排或生成');
+        }
+        const parts = path.split('/');
+        const q = await api<Quote>('billing/quote', {
+          method: 'POST',
+          body: JSON.stringify({
+            projectId: parts[1],
+            action: parts[parts.length - 1],
+          }),
+        });
+        await refreshAccount();
+        setQuote(q);
+        return;
+      }
       const p = await api<Project>(path, { method: 'POST', body: '{}' });
       activeID.current = p.id;
       setProject(p);
@@ -196,31 +229,28 @@ export default function Studio() {
       setBusy(false);
     }
   }
-  function openSettings() {
-    if (project && !offline) {
-      setDraft({
-        title: project.title,
-        brief: project.brief,
-        occasion: project.occasion || 'opening',
-        customPrompt: project.customPrompt || '',
-        wardrobeMode: project.wardrobeMode || 'auto',
-        wardrobePrompt: project.wardrobePrompt || '',
-        endingText: project.endingText || '',
-        duration: project.duration,
-        style:
-          project.style === 'garden'
-            ? 'romantic'
-            : project.style === 'seaside'
-              ? 'travel'
-              : project.style,
-        ratio: project.ratio,
-      });
-      setDialog(true);
+  useEffect(() => {
+    if (project && draftProjectID.current !== project.id) {
+      setDraft(projectDraft(project));
+      draftProjectID.current = project.id;
     }
+  }, [project]);
+  const draftDirty =
+    !!project &&
+    JSON.stringify(draft) !== JSON.stringify(projectDraft(project));
+  function openSettings() {
+    directorNotes.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+    directorNotes.current
+      ?.querySelector<HTMLTextAreaElement>('textarea')
+      ?.focus({ preventScroll: true });
   }
   async function saveProject(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!project) return;
+    if (!project || !canWrite || offline || running || busy || !draftDirty)
+      return;
     setBusy(true);
     setError('');
     try {
@@ -229,7 +259,7 @@ export default function Studio() {
         body: JSON.stringify(draft),
       });
       await refresh(p.id);
-      setDialog(false);
+      setDraft(projectDraft(p));
       setNotice('工程已保存');
     } catch (e) {
       setError((e as Error).message);
@@ -286,15 +316,24 @@ export default function Studio() {
         method: 'PATCH',
         body: JSON.stringify({ prompt: editPrompt }),
       });
-      if (regenerate)
-        await api(`projects/${project.id}/shots/${selectedShot.id}/generate`, {
+      if (regenerate) {
+        const q = await api<Quote>('billing/quote', {
           method: 'POST',
-          body: '{}',
+          body: JSON.stringify({
+            projectId: project.id,
+            action: 'shot',
+            shotId: selectedShot.id,
+          }),
         });
+        await refreshAccount();
+        setQuote(q);
+      }
       setSelectedShot(null);
       await refresh();
       setNotice(
-        regenerate ? '这个镜头已加入生成队列' : '指令已保存，生成后将更新影片',
+        regenerate
+          ? '指令已保存，请确认重做报价'
+          : '指令已保存，生成后将更新影片',
       );
     } catch (e) {
       setError((e as Error).message);
@@ -344,40 +383,52 @@ export default function Studio() {
       inputSchema: {
         type: 'object',
         properties: {
-          title: { type: 'string', minLength: 1 },
+          title: {
+            type: 'string',
+            maxLength: 80,
+            description: 'Optional; leave blank for automatic naming.',
+          },
           brief: { type: 'string' },
           customPrompt: { type: 'string', maxLength: 6000 },
-          occasion: { type: 'string', enum: ['opening', 'story', 'warmup'] },
+          scene: { type: 'string', enum: sceneChoices.map((s) => s.id) },
+          occasion: { type: 'string', enum: Object.keys(occasions) },
           wardrobeMode: { type: 'string', enum: ['auto', 'fixed', 'custom'] },
           wardrobePrompt: { type: 'string', maxLength: 1500 },
           endingText: { type: 'string', maxLength: 20 },
-          duration: { type: 'integer', enum: [60, 120, 180, 240] },
+          duration: { type: 'integer', enum: [15, 60, 120, 180, 240] },
         },
-        required: ['title', 'duration'],
+        required: [],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false },
       execute: async (input: unknown) => {
         const value = input as {
-          title: string;
+          title?: string;
           brief?: string;
           customPrompt?: string;
+          scene?: string;
           occasion?: string;
           wardrobeMode?: string;
           wardrobePrompt?: string;
           endingText?: string;
-          duration: number;
+          duration?: number;
         };
         if (
           !value ||
-          typeof value.title !== 'string' ||
-          !value.title.trim() ||
-          ![60, 120, 180, 240].includes(value.duration)
+          (value.title !== undefined && typeof value.title !== 'string') ||
+          (value.duration !== undefined &&
+            !(value.scene === 'commerce' ? [15] : [60, 120, 180, 240]).includes(
+              value.duration,
+            ))
         )
-          throw new Error('需要片名和有效时长');
+          throw new Error('请检查影片名称和时长格式');
         const p = await api<Project>('projects', {
           method: 'POST',
-          body: JSON.stringify({ ...value, style: 'joyful', ratio: '16:9' }),
+          body: JSON.stringify({
+            ...value,
+            style: sceneChoice(value.scene).style,
+            ratio: sceneChoice(value.scene).ratio,
+          }),
         });
         await refresh(p.id);
         return { id: p.id, status: p.status };
@@ -411,15 +462,16 @@ export default function Studio() {
 
   return (
     <Toaster>
+      <TaskQuote
+        key={quote?.id || 'closed'}
+        quote={quote}
+        onClose={() => setQuote(null)}
+        onComplete={() => refresh()}
+      />
       <div className="studio-shell">
         <header className="topbar">
           <Link className="brand" href="/" aria-label="誓光创作工作台">
-            <span className="brand-icon">
-              <Aperture size={24} strokeWidth={1.6} />
-            </span>
-            <span>
-              誓光 <em>VOWFILM</em>
-            </span>
+            <BrandLogo />
           </Link>
           <div className="breadcrumb">
             创作空间 <ChevronRight size={14} />
@@ -430,7 +482,7 @@ export default function Studio() {
               <i className={config?.connected ? 'online' : ''} />
               {config?.connected ? '创作引擎已连接' : '连接创作引擎'}
             </span>
-            {!offline && (
+            {!offline && auth?.permissions.includes('config:manage') && (
               <Link className="secondary-button settings-link" href="/settings">
                 <Settings2 size={16} />
                 <span>引擎配置</span>
@@ -453,12 +505,8 @@ export default function Studio() {
           >
             <div className="rail-top">
               <span className="eyebrow">我的影片</span>
-              {offline || !config ? (
-                <button
-                  className="icon-button"
-                  aria-label="新建影片"
-                  disabled
-                >
+              {offline || !config || !canWrite ? (
+                <button className="icon-button" aria-label="新建影片" disabled>
                   <Plus size={18} />
                 </button>
               ) : (
@@ -494,7 +542,7 @@ export default function Studio() {
                 </button>
               ))}
             </div>
-            {offline || !config ? (
+            {offline || !config || !canWrite ? (
               <button className="new-project" disabled>
                 <Plus size={16} />
                 新建影片
@@ -518,8 +566,28 @@ export default function Studio() {
           <main className="main-workspace">
             <div className="project-heading">
               <div>
-                <div className="eyebrow">WEDDING FILM STUDIO</div>
-                <h1>{project?.title || '为你们，留一场光'}</h1>
+                <div className="project-scene-field">
+                  <label htmlFor="workspace-scene">创作场景</label>
+                  <ChoiceSelect
+                    id="workspace-scene"
+                    label="创作场景"
+                    value={draft.scene}
+                    onChange={(scene) =>
+                      setDraft((value) => changeScene(value, scene))
+                    }
+                    items={sceneChoices.map((scene) => ({
+                      value: scene.id,
+                      label: scene.name,
+                    }))}
+                    disabled={
+                      !project || !canWrite || offline || running || busy
+                    }
+                  />
+                  {project && draft.scene !== (project.scene || 'wedding') && (
+                    <output className="scene-draft-hint">未保存</output>
+                  )}
+                </div>
+                <h1>{project?.title || '开启你的第一部影片'}</h1>
                 <div className="project-meta">
                   <span>{styles[project?.style || 'garden']}</span>
                   <b>·</b>
@@ -527,12 +595,12 @@ export default function Studio() {
                   <b>·</b>
                   <span>{project?.ratio || '16:9'}</span>
                   {project?.demo && (
-                    <span className="demo-tag">虚构婚礼演示</span>
+                    <span className="demo-tag">创意演示工程</span>
                   )}
                 </div>
               </div>
               <div className="heading-actions">
-                {offline || !config ? (
+                {offline || !config || !canWrite ? (
                   <button
                     className="secondary-button mobile-new"
                     aria-label="新建影片"
@@ -549,14 +617,6 @@ export default function Studio() {
                     <Plus size={16} />
                   </Link>
                 )}
-                <button
-                  className="secondary-button"
-                  disabled={offline || !project || running}
-                  onClick={openSettings}
-                >
-                  <Settings2 size={16} />
-                  <span>创作设置</span>
-                </button>
               </div>
             </div>
             {offline && (
@@ -581,24 +641,25 @@ export default function Studio() {
               </div>
             )}
             <div className="stage-bar">
-              {['故事编排', '分镜设计', '视频生成', '剪辑成片'].map(
-                (label, i) => (
-                  <div
-                    key={label}
-                    className={`stage ${i === stage ? 'current' : ''} ${i < stage || project?.status === 'completed' ? 'done' : ''}`}
-                  >
-                    <span>
-                      {i < stage || project?.status === 'completed' ? (
-                        <Check size={13} />
-                      ) : (
-                        `0${i + 1}`
-                      )}
-                    </span>
-                    <strong>{label}</strong>
-                    {i < 3 && <div className="stage-line" />}
-                  </div>
-                ),
-              )}
+              {(project?.scene === 'commerce'
+                ? ['广告创意', '完整脚本', '15秒直出', '成片就绪']
+                : ['故事编排', '分镜设计', '视频生成', '剪辑成片']
+              ).map((label, i) => (
+                <div
+                  key={label}
+                  className={`stage ${i === stage ? 'current' : ''} ${i < stage || project?.status === 'completed' ? 'done' : ''}`}
+                >
+                  <span>
+                    {i < stage || project?.status === 'completed' ? (
+                      <Check size={13} />
+                    ) : (
+                      `0${i + 1}`
+                    )}
+                  </span>
+                  <strong>{label}</strong>
+                  {i < 3 && <div className="stage-line" />}
+                </div>
+              ))}
             </div>
             <div className="creation-grid">
               <section className="viewer-panel" aria-label="影片预览">
@@ -644,7 +705,7 @@ export default function Studio() {
                       <img
                         className="film-poster"
                         src={project.posterUrl}
-                        alt="婚礼影片画面"
+                        alt="影片画面"
                       />
                       <div className="poster-caption">
                         <span>VOWFILM ORIGINAL</span>
@@ -660,7 +721,7 @@ export default function Studio() {
                     <Empty className="preview-empty">
                       <Clapperboard size={36} strokeWidth={1} />
                       <p>故事的下一帧，由你开启</p>
-                      <span>添加照片，或创作一场想象中的婚礼</span>
+                      <span>添加人物、商品或场景参考，开始创作</span>
                     </Empty>
                   )}
                   {running && (
@@ -694,7 +755,11 @@ export default function Studio() {
                   </button>
                 </div>
               </section>
-              <aside className="director-panel">
+              <aside
+                className="director-panel"
+                id="director-notes"
+                ref={directorNotes}
+              >
                 <div className="panel-top">
                   <span>
                     <Sparkles size={15} />
@@ -705,52 +770,21 @@ export default function Studio() {
                   </span>
                 </div>
                 <div className="director-body">
-                  <span className="chapter-label">关于这部影片</span>
-                  <p className="story-text">
-                    {project?.synopsis ||
-                      '用光线写下相遇，用镜头收藏相伴。从一张照片，走进属于你们的电影。'}
-                  </p>
-                  <div className="direction-tags">
-                    <span>
-                      {project?.customPrompt
-                        ? '自定义导演要求'
-                        : styles[project?.style || 'joyful']}
-                    </span>
-                    <span>
-                      目标{' '}
-                      {project?.treatment?.bpm ||
-                        styleChoices.find((s) => s.id === project?.style)
-                          ?.bpm ||
-                        96}{' '}
-                      BPM
-                    </span>
-                    <span>分段情绪设计</span>
-                  </div>
-                  <div className="story-divider" />
-                  <div className="detail-line">
-                    <span>基础风格</span>
-                    <strong>{styles[project?.style || 'garden']}</strong>
-                  </div>
-                  <div className="detail-line">
-                    <span>影片长度</span>
-                    <strong>{(project?.duration || 60) / 60} 分钟</strong>
-                  </div>
-                  <div className="detail-line">
-                    <span>镜头数量</span>
-                    <strong>{project?.shots.length || '—'} 个</strong>
-                  </div>
-                  <div className="detail-line">
-                    <span>声音设计</span>
-                    <strong>
-                      {project?.assets.some((a) => a.role === 'music')
-                        ? '已上传配乐'
-                        : project?.musicSource === 'sonilo'
-                          ? 'AI 分段配乐'
-                          : project?.musicSections?.length
-                            ? '五段情绪配乐'
-                            : '原创钢琴配乐'}
-                    </strong>
-                  </div>
+                  {project?.synopsis && (
+                    <p className="story-text">{project.synopsis}</p>
+                  )}
+                  {project && (
+                    <DirectorSettings
+                      key={project.id}
+                      draft={draft}
+                      setDraft={setDraft}
+                      onSubmit={saveProject}
+                      disabled={!canWrite || offline || running}
+                      busy={busy}
+                      dirty={draftDirty}
+                      error={error}
+                    />
+                  )}
                   <div className="generation-area">
                     {running ? (
                       <>
@@ -764,7 +798,7 @@ export default function Studio() {
                         />
                         <button
                           className="secondary-button full-width"
-                          disabled={busy}
+                          disabled={!canWrite || busy}
                           onClick={() =>
                             project &&
                             void action(`projects/${project.id}/cancel`)
@@ -777,7 +811,9 @@ export default function Studio() {
                       <>
                         <button
                           className="primary-button full-width"
-                          disabled={busy || !project || !config?.connected}
+                          disabled={
+                            !canWrite || busy || !project || !config?.connected
+                          }
                           onClick={() =>
                             project &&
                             void action(
@@ -796,7 +832,9 @@ export default function Studio() {
                         <p className="generation-note">
                           {project?.status === 'completed'
                             ? '保留现有镜头，重新输出影片'
-                            : '自动编排 · 生成镜头 · 配乐剪辑'}
+                            : project?.scene === 'commerce'
+                              ? '完整广告脚本 · 15秒直出 · 原生声音'
+                              : '自动编排 · 生成镜头 · 配乐剪辑'}
                         </p>
                       </>
                     )}
@@ -813,7 +851,9 @@ export default function Studio() {
                 <TabsList variant="line">
                   <TabsTrigger value="storyboard">
                     <Clapperboard size={16} />
-                    分镜脚本{' '}
+                    {project?.scene === 'commerce'
+                      ? '整片脚本'
+                      : '分镜脚本'}{' '}
                     <span className="tab-count">
                       {project?.shots.length || 0}
                     </span>
@@ -837,7 +877,9 @@ export default function Studio() {
                 {(tab === 'storyboard' || tab === 'treatment') && (
                   <button
                     className="text-button"
-                    disabled={offline || busy || running || !project}
+                    disabled={
+                      !canWrite || offline || busy || running || !project
+                    }
                     onClick={() =>
                       project && void action(`projects/${project.id}/plan`)
                     }
@@ -848,9 +890,25 @@ export default function Studio() {
                 )}
               </div>
               <TabsContent value="storyboard">
+                {project?.scene === 'commerce' &&
+                  project.shots.length > 0 &&
+                  project.generationMode !== 'commerce-direct-15s-v3' && (
+                    <p className="fine-print">
+                      当前是旧版分镜。请确认导演手记的时长为15秒，保存后点击「重新编排」使用
+                      v3。
+                    </p>
+                  )}
                 <div className="section-description">
-                  <span>每一个镜头，都让故事向前一步。</span>
-                  <span>点击镜头可编辑指令或局部重做</span>
+                  <span>
+                    {project?.scene === 'commerce'
+                      ? '一条完整指令，生成15秒广告与原生声音。'
+                      : '每一个镜头，都让故事向前一步。'}
+                  </span>
+                  <span>
+                    {project?.scene === 'commerce'
+                      ? '点击卡片编辑完整指令或重新生成整条广告'
+                      : '点击镜头可编辑指令或局部重做'}
+                  </span>
                 </div>
                 <div className="shot-grid">
                   {project?.shots.map((shot, i) => (
@@ -910,7 +968,9 @@ export default function Studio() {
                     <span>写下你的想法，让导演安排第一个镜头。</span>
                     <button
                       className="secondary-button"
-                      disabled={offline || !project || busy || running}
+                      disabled={
+                        !canWrite || offline || !project || busy || running
+                      }
                       onClick={() =>
                         project && void action(`projects/${project.id}/plan`)
                       }
@@ -925,16 +985,16 @@ export default function Studio() {
                 <section className="treatment-panel">
                   <div className="treatment-heading">
                     <div>
-                      <span className="chapter-label">为婚礼现场编排</span>
+                      <span className="chapter-label">为当前场景编排</span>
                       <h2>{occasions[project?.occasion || 'opening']}</h2>
                     </div>
                     <button
                       className="secondary-button"
-                      disabled={offline || running || busy}
+                      disabled={!canWrite || offline || running || busy}
                       onClick={openSettings}
                     >
                       <Settings2 size={15} />
-                      修改创作要求
+                      编辑导演手记
                     </button>
                   </div>
                   {project?.customPrompt && (
@@ -943,7 +1003,22 @@ export default function Studio() {
                       <p>{project.customPrompt}</p>
                     </div>
                   )}
-                  {project?.treatment ? (
+                  {project?.scene === 'commerce' &&
+                  project.generationMode === 'commerce-direct-15s-v3' &&
+                  project.shots[0] ? (
+                    <div className="director-request">
+                      <strong>15秒完整广告 Prompt · v3</strong>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>
+                        {project.shots[0].prompt}
+                      </p>
+                      <button
+                        className="secondary-button"
+                        onClick={() => editShot(project.shots[0])}
+                      >
+                        编辑完整指令
+                      </button>
+                    </div>
+                  ) : project?.treatment ? (
                     <>
                       <p className="treatment-concept">
                         {project.treatment.concept}
@@ -956,12 +1031,13 @@ export default function Studio() {
                         <p>
                           <strong>如何交还现场</strong>
                           {project.treatment.closingLine}
-                          {project.occasion !== 'warmup' && (
-                            <small>
-                              片尾留画 {project.occasion === 'story' ? 2 : 3}{' '}
-                              秒，音乐降至安静
-                            </small>
-                          )}
+                          {(!project.scene || project.scene === 'wedding') &&
+                            project.occasion !== 'warmup' && (
+                              <small>
+                                片尾留画 {project.occasion === 'story' ? 2 : 3}{' '}
+                                秒，音乐降至安静
+                              </small>
+                            )}
                         </p>
                       </div>
                       <div className="treatment-acts">
@@ -986,8 +1062,18 @@ export default function Studio() {
                               <div className="act-setting">{act.setting}</div>
                               <div className="look-detail">
                                 <strong>{look?.name}</strong>
-                                <p>新娘 · {look?.bride}</p>
-                                <p>新郎 · {look?.groom}</p>
+                                <p>
+                                  {project.scene === 'commerce'
+                                    ? '商品'
+                                    : '主要人物'}{' '}
+                                  · {look?.bride}
+                                </p>
+                                <p>
+                                  {project.scene === 'commerce'
+                                    ? '环境'
+                                    : '其他人物'}{' '}
+                                  · {look?.groom}
+                                </p>
                               </div>
                               {next && (
                                 <div className="wardrobe-bridge">
@@ -1040,14 +1126,21 @@ export default function Studio() {
                   ) : (
                     <Empty>
                       <WandSparkles size={28} />
-                      <p>先把故事和造型排成一部影片</p>
+                      <p>
+                        {project?.scene === 'commerce'
+                          ? '先写一条完整的15秒广告指令'
+                          : '先把故事和造型排成一部影片'}
+                      </p>
                       <span>
-                        编排后可查看三至四章叙事、每章造型、换装衔接与 Prompt
-                        的采纳情况。
+                        {project?.scene === 'commerce'
+                          ? '编排后可查看素材职责、完整时间轴、动作和台词，再提交一次视频生成。'
+                          : '编排后可查看三至四章叙事、每章造型、换装衔接与 Prompt 的采纳情况。'}
                       </span>
                       <button
                         className="primary-button"
-                        disabled={offline || running || busy || !project}
+                        disabled={
+                          !canWrite || offline || running || busy || !project
+                        }
                         onClick={() =>
                           project && void action(`projects/${project.id}/plan`)
                         }
@@ -1062,7 +1155,9 @@ export default function Studio() {
                 <div className="asset-toolbar">
                   <div>
                     <h2>故事的起点</h2>
-                    <p>上传参考照片或音乐。新人照片需绑定已授权的人物素材。</p>
+                    <p>
+                      上传人物、商品、场景或音乐素材。真人照片需绑定已授权的人物素材。
+                    </p>
                   </div>
                   <div className="upload-controls">
                     <ChoiceSelect
@@ -1071,14 +1166,22 @@ export default function Studio() {
                       label="素材用途"
                       items={[
                         { value: 'reference', label: '场景参考' },
-                        { value: 'bride', label: '新娘照片' },
-                        { value: 'groom', label: '新郎照片' },
+                        ...(project?.scene === 'wedding' || !project?.scene
+                          ? [
+                              { value: 'bride', label: '新娘照片' },
+                              { value: 'groom', label: '新郎照片' },
+                            ]
+                          : [{ value: 'person', label: '人物照片' }]),
+                        { value: 'product', label: '商品照片' },
+
                         { value: 'music', label: '背景音乐' },
                       ]}
                     />
                     <button
                       className="secondary-button"
-                      disabled={offline || busy || running || !project}
+                      disabled={
+                        !canWrite || offline || busy || running || !project
+                      }
                       onClick={() => uploadInput.current?.click()}
                     >
                       <Upload size={16} />
@@ -1113,6 +1216,8 @@ export default function Studio() {
                         <small>
                           {
                             {
+                              person: '人物',
+                              product: '商品',
                               bride: '新娘',
                               groom: '新郎',
                               reference: '场景参考',
@@ -1120,7 +1225,7 @@ export default function Studio() {
                             }[asset.role]
                           }
                         </small>
-                        {['bride', 'groom'].includes(asset.role) &&
+                        {['bride', 'groom', 'person'].includes(asset.role) &&
                           (asset.providerAssetId ? (
                             <span className="asset-ready">
                               <Check size={12} />
@@ -1160,7 +1265,9 @@ export default function Studio() {
                 {!project?.assets.length && (
                   <button
                     className="upload-zone"
-                    disabled={offline || !project || busy || running}
+                    disabled={
+                      !canWrite || offline || !project || busy || running
+                    }
                     onClick={() => uploadInput.current?.click()}
                   >
                     <ImagePlus size={28} strokeWidth={1.3} />
@@ -1240,19 +1347,23 @@ export default function Studio() {
                 <div className="music-track">
                   <Music2 size={14} />
                   <span>
-                    {project.assets.some((a) => a.role === 'music')
-                      ? '项目配乐'
-                      : project.musicSource === 'sonilo'
-                        ? 'AI 配乐 · 为这部影片创作'
-                        : '影片配乐'}
+                    {project.generationMode === 'commerce-direct-15s-v3'
+                      ? '原生声音 · 与画面一起生成'
+                      : project.assets.some((a) => a.role === 'music')
+                        ? '项目配乐'
+                        : project.musicSource === 'sonilo'
+                          ? 'AI 配乐 · 为这部影片创作'
+                          : '影片配乐'}
                   </span>
-                  <span className="score-tempo">
-                    目标{' '}
-                    {project.treatment?.bpm ||
-                      styleChoices.find((s) => s.id === project.style)?.bpm ||
-                      96}{' '}
-                    BPM
-                  </span>
+                  {project.scene !== 'commerce' && (
+                    <span className="score-tempo">
+                      目标{' '}
+                      {project.treatment?.bpm ||
+                        styleChoices.find((s) => s.id === project.style)?.bpm ||
+                        96}{' '}
+                      BPM
+                    </span>
+                  )}
                 </div>
                 {!!project.musicSections?.length && (
                   <div className="score-sections" aria-label="分段配乐设计">
@@ -1337,222 +1448,6 @@ export default function Studio() {
           </main>
         </SidebarProvider>
         <Dialog
-          open={dialog}
-          onOpenChange={setDialog}
-        >
-          <DialogContent className="project-dialog">
-            <DialogHeader>
-              <DialogTitle>创作设置</DialogTitle>
-              <DialogDescription>
-                调整播放用途、故事素材与导演要求。保存后可在工作台继续创作。
-              </DialogDescription>
-            </DialogHeader>
-            <form className="project-form" onSubmit={saveProject}>
-              <label>
-                影片名称
-                <input
-                  required
-                  maxLength={80}
-                  value={draft.title}
-                  onChange={(e) =>
-                    setDraft({ ...draft, title: e.target.value })
-                  }
-                  placeholder="例如：把余生写成我们"
-                />
-              </label>
-              <label>
-                你们的故事与事实素材
-                <textarea
-                  rows={4}
-                  maxLength={4000}
-                  value={draft.brief}
-                  onChange={(e) =>
-                    setDraft({ ...draft, brief: e.target.value })
-                  }
-                  placeholder="填写确实发生的相遇、共同爱好、希望感谢的人。没有资料时用象征性情节，不编造真实经历。"
-                />
-              </label>
-              <label htmlFor="project-occasion">
-                婚礼现场的播放环节
-                <ChoiceSelect
-                  id="project-occasion"
-                  value={draft.occasion}
-                  onChange={(occasion) => setDraft({ ...draft, occasion })}
-                  label="播放环节"
-                  items={Object.entries(occasions).map(([value, label]) => ({
-                    value,
-                    label,
-                  }))}
-                />
-              </label>
-              <p className="fine-print">
-                {draft.occasion === 'opening'
-                  ? '抓住宾客注意 → 关系推进 → 正式亮相。片尾留画、降音乐，方便主持人接话。'
-                  : draft.occasion === 'story'
-                    ? '以真实经历串起关系变化，最后感谢亲友；不发出立即入场口令。'
-                    : '轻松、可重复观看；播放器自动循环，片尾不提示新人立即入场。'}
-              </p>
-              <label htmlFor="custom-prompt">
-                给导演的自定义 Prompt
-                <textarea
-                  id="custom-prompt"
-                  rows={5}
-                  maxLength={6000}
-                  value={draft.customPrompt}
-                  onChange={(e) =>
-                    setDraft({ ...draft, customPrompt: e.target.value })
-                  }
-                  placeholder="例如：日常装 → 中式礼服 → 婚纱西装，用白纱遮挡切接。不要群像；音乐从轻拨弦走向庆祝高潮，片尾写‘故事继续，主角登场’。"
-                />
-              </label>
-              <div className="prompt-inspiration" aria-label="追加创作灵感">
-                <span>追加灵感</span>
-                {promptExamples.map((example) => (
-                  <button
-                    type="button"
-                    key={example.name}
-                    onClick={() =>
-                      setDraft((value) => ({
-                        ...value,
-                        customPrompt: [value.customPrompt, example.text]
-                          .filter(Boolean)
-                          .join('\n')
-                          .slice(0, 6000),
-                      }))
-                    }
-                  >
-                    {example.name}
-                  </button>
-                ))}
-              </div>
-              <p className="fine-print">
-                你的具体要求优先于风格模板，参与故事、分镜与音乐规划。当前生成器乐配乐；可上传自己的旁白或音乐音轨。
-              </p>
-              <div className="form-row">
-                <label htmlFor="wardrobe-mode">
-                  造型变化
-                  <ChoiceSelect
-                    id="wardrobe-mode"
-                    value={draft.wardrobeMode}
-                    onChange={(wardrobeMode) =>
-                      setDraft({ ...draft, wardrobeMode })
-                    }
-                    label="造型变化"
-                    items={[
-                      { value: 'auto', label: '导演按章节安排 · 最多 3 套' },
-                      { value: 'fixed', label: '全片固定一套造型' },
-                      { value: 'custom', label: '自定义造型 · 最多 4 套' },
-                    ]}
-                  />
-                </label>
-                <label htmlFor="ending-text">
-                  片尾大字 · 可选
-                  <input
-                    id="ending-text"
-                    maxLength={20}
-                    value={draft.endingText}
-                    onChange={(e) =>
-                      setDraft({ ...draft, endingText: e.target.value })
-                    }
-                    placeholder="例如：故事继续，主角登场"
-                  />
-                </label>
-              </div>
-              {draft.wardrobeMode === 'custom' && (
-                <label htmlFor="wardrobe-prompt">
-                  每一套造型与出现顺序
-                  <textarea
-                    id="wardrobe-prompt"
-                    required
-                    rows={3}
-                    maxLength={1500}
-                    value={draft.wardrobePrompt}
-                    onChange={(e) =>
-                      setDraft({ ...draft, wardrobePrompt: e.target.value })
-                    }
-                    placeholder="第一章：米白日常裙、浅色衬衫；第二章：红色中式礼服；第三章：象牙白婚纱、黑色普通西装。人物面貌保持一致。"
-                  />
-                </label>
-              )}
-              <div className="form-row">
-                <label htmlFor="project-duration">
-                  时长
-                  <ChoiceSelect
-                    id="project-duration"
-                    value={String(draft.duration)}
-                    onChange={(s) =>
-                      setDraft({ ...draft, duration: Number(s) })
-                    }
-                    label="影片时长"
-                    items={[60, 120, 180, 240].map((s) => ({
-                      value: String(s),
-                      label: `${s / 60} 分钟`,
-                    }))}
-                  />
-                </label>
-                <label htmlFor="project-ratio">
-                  画幅
-                  <ChoiceSelect
-                    id="project-ratio"
-                    value={draft.ratio}
-                    onChange={(s) => setDraft({ ...draft, ratio: s })}
-                    label="画幅"
-                    items={[
-                      { value: '16:9', label: '16:9 横屏' },
-                      { value: '9:16', label: '9:16 竖屏' },
-                    ]}
-                  />
-                </label>
-              </div>
-              <fieldset className="style-fieldset">
-                <legend>选择基础风格参考</legend>
-                <RadioGroup
-                  className="style-picker"
-                  value={draft.style}
-                  onValueChange={(value) =>
-                    setDraft({ ...draft, style: String(value) })
-                  }
-                  aria-label="影片风格"
-                >
-                  {styleChoices.map((style) => (
-                    <label
-                      key={style.id}
-                      htmlFor={`style-${style.id}`}
-                      className={`style-option ${draft.style === style.id ? 'selected' : ''}`}
-                    >
-                      <div>
-                        <RadioGroupItem
-                          id={`style-${style.id}`}
-                          value={style.id}
-                        />
-                        <strong>{style.name}</strong>
-                        <span>{style.bpm} BPM</span>
-                      </div>
-                      <small>{style.hint}</small>
-                    </label>
-                  ))}
-                </RadioGroup>
-                <p className="fine-print">
-                  风格提供默认方向；你在 Prompt 中写明的内容会优先采用。
-                </p>
-              </fieldset>
-              {error && (
-                <p className="inline-error" role="alert">
-                  {error}
-                </p>
-              )}
-              <button className="primary-button full-width" disabled={busy}>
-                {busy ? (
-                  <LoaderCircle size={16} className="spin" />
-                ) : (
-                  <Plus size={16} />
-                )}
-                保存并重新设置工程
-              </button>
-            </form>
-          </DialogContent>
-        </Dialog>
-        <Dialog
           open={!!selectedShot}
           onOpenChange={(open) => {
             if (!open) setSelectedShot(null);
@@ -1606,13 +1501,15 @@ export default function Studio() {
               </div>
             )}
             <label className="prompt-label">
-              镜头生成指令
+              {project?.scene === 'commerce'
+                ? '整条广告生成指令'
+                : '镜头生成指令'}
               <textarea
                 rows={7}
                 value={editPrompt}
                 onChange={(e) => setEditPrompt(e.target.value)}
-                maxLength={6000}
-                disabled={offline || running}
+                maxLength={10000}
+                disabled={!canWrite || offline || running}
               />
             </label>
             {(error || selectedShot?.error) && (
@@ -1623,22 +1520,26 @@ export default function Studio() {
             <div className="dialog-actions">
               <button
                 className="secondary-button"
-                disabled={offline || busy || running}
+                disabled={!canWrite || offline || busy || running}
                 onClick={() => void saveShot(false)}
               >
                 保存指令
               </button>
               <button
                 className="primary-button"
-                disabled={offline || busy || running}
+                disabled={!canWrite || offline || busy || running}
                 onClick={() => void saveShot(true)}
               >
                 <RefreshCw size={15} />
-                重做这个镜头
+                {project?.scene === 'commerce'
+                  ? '重新生成整条广告'
+                  : '重做这个镜头'}
               </button>
             </div>
             <p className="fine-print">
-              重做会调用视频模型。保留其余镜头，完成后自动重新合成影片。
+              {project?.scene === 'commerce'
+                ? '重新调用视频模型直出完整15秒广告，原生声音也会重新生成。'
+                : '重做会调用视频模型。保留其余镜头，完成后可重新合成影片。'}
             </p>
           </DialogContent>
         </Dialog>

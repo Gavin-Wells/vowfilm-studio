@@ -26,13 +26,16 @@ export type Shot = {
 export type Asset = {
   id: string;
   name: string;
-  role: 'bride' | 'groom' | 'reference' | 'music';
+  role: 'bride' | 'groom' | 'reference' | 'music' | 'person' | 'product';
   url: string;
   file: string;
   mime: string;
   providerAssetId?: string;
 };
 export type Project = {
+  scene?: string;
+  ownerId?: string;
+  autoTitle?: boolean;
   id: string;
   title: string;
   brief: string;
@@ -57,6 +60,8 @@ export type Project = {
   generationBudget: number;
   llmModel?: string;
   videoModel?: string;
+  promptPolicy?: string;
+  generationMode?: string;
   musicSections?: {
     name: string;
     start: number;
@@ -102,7 +107,7 @@ export type StudioConfig = {
   baseUrl: string;
   llmModel: string;
   videoModel: string;
-  apiKeySet: boolean;
+  apiKeySet?: boolean;
   apiKeyHint?: string;
   maxDuration: number;
   generationConcurrency: number;

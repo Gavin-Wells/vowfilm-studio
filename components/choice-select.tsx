@@ -12,15 +12,22 @@ export function ChoiceSelect({
   items,
   label,
   id,
+  disabled = false,
 }: {
   value: string;
   onChange: (s: string) => void;
   items: { value: string; label: string }[];
   label: string;
   id?: string;
+  disabled?: boolean;
 }) {
   return (
-    <Select value={value} onValueChange={(v) => v && onChange(v)} items={items}>
+    <Select
+      value={value}
+      onValueChange={(v) => v && onChange(v)}
+      items={items}
+      disabled={disabled}
+    >
       <SelectTrigger id={id} className="choice" aria-label={label}>
         <SelectValue />
       </SelectTrigger>

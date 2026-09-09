@@ -1,0 +1,4 @@
+interface:
+  display_name: "广告视频提示词"
+  short_description: "将产品资料与参考素材转成可直接生成的口播、剧情广告分镜提示词"
+  default_prompt: "使用 $ad-video-prompt，根据我的产品资料、参考图和广告目标生成视频提示词，支持分段与批量变体。"

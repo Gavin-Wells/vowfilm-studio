@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -15,7 +16,8 @@ args = parser.parse_args()
 if not re.fullmatch(r"[A-Za-z0-9_-]+", args.name):
     parser.error("name must be a plain filename stem")
 root = Path(__file__).resolve().parent.parent
-p = json.loads((root / "data/projects.json").read_text())[args.project]
+p = json.loads(subprocess.check_output(["go", "run", "./cmd/export-project", args.project], cwd=root / "server", env={**os.environ, "VOWFILM_ENV_FILE": str(root / ".env")}))
+p.pop("ownerId", None)
 if p["status"] != "completed" or not p.get("filmUrl"):
     parser.error("project has no completed film")
 source = root / "data" / p["id"]

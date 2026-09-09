@@ -205,10 +205,13 @@ func TestHTTPAuthValidationAndProjectLifecycle(t *testing.T) {
 	if resp.StatusCode != 401 {
 		t.Fatal("API must require authentication")
 	}
+	session := testSession(t, a)
 	request := func(method, path, body string) *http.Response {
 		r, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
 		r.Header.Set("X-Vowfilm-Token", a.cfg.Token)
 		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Vowfilm-CSRF", "1")
+		r.AddCookie(&http.Cookie{Name: "vowfilm_session", Value: session})
 		resp, e := http.DefaultClient.Do(r)
 		if e != nil {
 			t.Fatal(e)

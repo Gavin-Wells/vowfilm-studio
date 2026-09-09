@@ -7,45 +7,26 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"vowfilm/server/internal/domain"
 )
 
-type Look struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Bride string `json:"bride"`
-	Groom string `json:"groom"`
-}
-type Act struct {
-	ID        string  `json:"id"`
-	Title     string  `json:"title"`
-	LookID    string  `json:"lookId"`
-	Setting   string  `json:"setting"`
-	StoryBeat string  `json:"storyBeat"`
-	Bridge    string  `json:"bridge"`
-	FirstShot int     `json:"firstShot"`
-	LastShot  int     `json:"lastShot"`
-	Start     float64 `json:"start"`
-	End       float64 `json:"end"`
-}
-type Treatment struct {
-	Concept        string   `json:"concept"`
-	IdentityAnchor string   `json:"identityAnchor"`
-	OpeningHook    string   `json:"openingHook"`
-	ClosingLine    string   `json:"closingLine"`
-	MusicDirection string   `json:"musicDirection"`
-	BPM            int      `json:"bpm"`
-	MustHave       []string `json:"mustHave"`
-	Avoid          []string `json:"avoid"`
-	Notes          []string `json:"notes"`
-	Looks          []Look   `json:"looks"`
-	Acts           []Act    `json:"acts"`
-}
+type Look = domain.Look
+type Act = domain.Act
+type Treatment = domain.Treatment
 
 func validateCreativeSettings(p *Project) error {
-	switch p.Occasion {
-	case "", "opening", "story", "warmup":
-	default:
-		return errors.New("请选择婚礼播放环节")
+	scene := sceneFor(p)
+	if scene.ID == "" {
+		return errors.New("不支持的创作场景")
+	}
+	valid := p.Occasion == ""
+	for _, o := range scene.Occasions {
+		if p.Occasion == o {
+			valid = true
+		}
+	}
+	if !valid {
+		return errors.New("播放用途与创作场景不匹配")
 	}
 	switch p.WardrobeMode {
 	case "", "auto", "fixed", "custom":
@@ -68,6 +49,10 @@ func validateCreativeSettings(p *Project) error {
 }
 func occasion(p *Project) string {
 	if p.Occasion == "" {
+		s := sceneFor(p)
+		if len(s.Occasions) > 0 {
+			return s.Occasions[0]
+		}
 		return "opening"
 	}
 	return p.Occasion
@@ -79,12 +64,18 @@ func targetBPM(p *Project) int {
 	return profileFor(p.Style).BPM
 }
 func shotCount(p *Project) int {
-	if !rhythmicStyle(p.Style) {
-		return p.Duration / 60 * 8
+	if sceneID(p) == "commerce" {
+		return 1
 	}
-	return p.Duration / 60 * profileFor(p.Style).ShotsPerMinute
+	if !rhythmicStyle(p.Style) {
+		return max(4, int(math.Ceil(float64(p.Duration)*8/60)))
+	}
+	return max(4, int(math.Ceil(float64(p.Duration)*float64(profileFor(p.Style).ShotsPerMinute)/60)))
 }
 func occasionDirection(p *Project) string {
+	if sceneID(p) != "wedding" {
+		return sceneFor(p).Direction + "具体用途：" + occasion(p)
+	}
 	switch occasion(p) {
 	case "story":
 		return "仪式中爱情回顾：宾客需要看懂两人如何走到今天。只用用户提供的真实经历；资料不足时使用象征性相遇、陪伴和承诺，明确是创意表达。以对家人与宾朋的感谢收束，不发出立即入场口令。"
@@ -95,7 +86,7 @@ func occasionDirection(p *Project) string {
 	}
 }
 func endHold(p *Project) float64 {
-	if p.Treatment == nil || occasion(p) == "warmup" {
+	if p.Treatment == nil || occasion(p) == "warmup" || sceneID(p) != "wedding" {
 		return 0
 	}
 	if occasion(p) == "story" {
@@ -136,13 +127,13 @@ func normalizeTreatment(p *Project, t *Treatment) error {
 	if p.WardrobeMode == "custom" {
 		maxLooks = 4
 	}
-	if p.WardrobeMode == "fixed" {
+	if p.WardrobeMode == "fixed" || sceneID(p) == "commerce" {
 		maxLooks = 1
 	}
 	if len(t.Looks) < 1 || len(t.Looks) > maxLooks {
 		return fmt.Errorf("导演方案的造型数需为 1–%d 套", maxLooks)
 	}
-	if len(t.Acts) < 3 || len(t.Acts) > 4 {
+	if len(t.Acts) < 3 || len(t.Acts) > min(4, shotCount(p)) {
 		return errors.New("导演方案需要 3–4 个叙事章节")
 	}
 	ids := map[string]bool{}
@@ -182,7 +173,7 @@ func normalizeTreatment(p *Project, t *Treatment) error {
 	if p.EndingText != "" {
 		t.ClosingLine = p.EndingText
 	}
-	if t.ClosingLine == "" || len([]rune(t.ClosingLine)) > 20 {
+	if (t.ClosingLine == "" && sceneID(p) != "commerce") || len([]rune(t.ClosingLine)) > 20 {
 		return errors.New("片尾字幕需为 1–20 字")
 	}
 	tmp := *p
@@ -203,18 +194,18 @@ acts：3–4章，每章绑定一个lookId，同章服装固定；只在章边�
 面向人的描述使用中文，id、lookId和bridge使用英文标识。bridge必须与本章storyBeat的结束动作对应：花束或物件遮镜为prop，前景白纱遮镜为veil，背朝镜头旋转为spin，普通切接为cut。先决定本章结尾，再填写对应枚举。每章等长，具体帧数由后端量化，不臆测镜头数量。必须返回3–4章与有效造型引用。`
 
 func (p *Provider) Develop(ctx context.Context, project *Project) (*Treatment, error) {
-	input := map[string]any{"title": project.Title, "facts": project.Brief, "custom_prompt": project.CustomPrompt, "wardrobe_mode": project.WardrobeMode, "wardrobe_prompt": project.WardrobePrompt, "ending_text": project.EndingText, "occasion": occasion(project), "occasion_direction": occasionDirection(project), "style_defaults": profileFor(project.Style), "duration_seconds": project.Duration, "fictional_demo": project.Demo}
-	assets := []map[string]string{}
-	for _, a := range project.Assets {
-		assets = append(assets, map[string]string{"role": a.Role, "name": a.Name})
+	if sceneID(project) == "commerce" {
+		return nil, errors.New("电商v3直接编写完整广告指令，无需单独导演方案")
 	}
-	input["assets"] = assets
+	input := map[string]any{"scene": sceneID(project), "scene_direction": sceneFor(project).Direction, "title": project.Title, "facts": project.Brief, "custom_prompt": project.CustomPrompt, "wardrobe_mode": project.WardrobeMode, "wardrobe_prompt": project.WardrobePrompt, "ending_text": project.EndingText, "occasion": occasion(project), "occasion_direction": occasionDirection(project), "style_defaults": profileForProject(project), "duration_seconds": project.Duration, "fictional_demo": project.Demo}
+	input["assets"] = creativeAssets(project)
+
 	input["total_shot_count"] = shotCount(project)
 	if project.WardrobeMode == "" {
 		input["wardrobe_mode"] = "auto"
 	}
 	raw, _ := json.Marshal(input)
-	out, err := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]string{{"role": "system", "content": treatmentPrompt}, {"role": "user", "content": string(raw)}}, "reasoning_effort": "low", "max_tokens": 4000}, "")
+	out, err := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]string{{"role": "system", "content": scenePrompt(project, treatmentPrompt)}, {"role": "user", "content": string(raw)}}, "reasoning_effort": "low", "max_tokens": 4000}, "")
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +216,7 @@ func (p *Provider) Develop(ctx context.Context, project *Project) (*Treatment, e
 	if err = normalizeTreatment(project, &t); err != nil {
 		// One bounded schema repair, before submitting any paid video task.
 		invalid, _ := json.Marshal(t)
-		repaired, repairErr := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]string{{"role": "system", "content": treatmentPrompt}, {"role": "user", "content": string(raw)}, {"role": "assistant", "content": string(invalid)}, {"role": "user", "content": "只修复方案校验问题并返回完整JSON：" + err.Error() + "。保持用户全部创作要求。"}}, "reasoning_effort": "low", "max_tokens": 4000}, "")
+		repaired, repairErr := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]string{{"role": "system", "content": scenePrompt(project, treatmentPrompt)}, {"role": "user", "content": string(raw)}, {"role": "assistant", "content": string(invalid)}, {"role": "user", "content": "只修复方案校验问题并返回完整JSON：" + err.Error() + "。保持用户全部创作要求。"}}, "reasoning_effort": "low", "max_tokens": 4000}, "")
 		if repairErr != nil {
 			return nil, repairErr
 		}
@@ -257,6 +248,9 @@ func decodeModelJSON(out map[string]any, target any) error {
 }
 
 func applyContinuity(p *Project, shots []Shot) error {
+	if sceneID(p) == "commerce" {
+		return errors.New("电商v3不使用跨任务连续性拼接")
+	}
 	if p.Treatment == nil {
 		return nil
 	}
@@ -278,7 +272,7 @@ func applyContinuity(p *Project, shots []Shot) error {
 			next := actForShot(t, i+2)
 			if next != nil && next.LookID != l.ID {
 				s.ChangeToLookID = next.LookID
-				if a.Bridge == "cut" {
+				if a.Bridge == "cut" || sceneID(p) != "wedding" {
 					s.Transition = "cut"
 					s.TransitionReason = "按导演要求在章节交界直接切换造型，保持人物方位与景别关系"
 					continue
@@ -301,7 +295,8 @@ func applyContinuity(p *Project, shots []Shot) error {
 		s := &shots[i]
 		a := actForShot(t, i+1)
 		l := lookByID(t, s.LookID)
-		s.Prompt = "人物身份锚点：" + t.IdentityAnchor + "。本镜新娘服装：" + l.Bride + "；本镜新郎服装：" + l.Groom + "。同章固定此套衣服和人物面貌，本镜内部不变装、不变脸。本章场景：" + a.Setting + "。" + s.Prompt + "。最终入场要求：" + s.EntryAction + "。最终出场要求：" + s.ExitAction + "。服装变化只发生在相邻片段之间的剪辑点，不在本镜头内展示变形。单一连续镜头，无文字、无字幕、无背景音乐。"
+
+		s.Prompt = "主体一致性锚点：" + t.IdentityAnchor + "。本镜主体造型/商品外观：" + l.Bride + "；本镜其他主体/环境：" + l.Groom + "。同章固定此套衣服和人物面貌，本镜内部不变装、不变脸。本章场景：" + a.Setting + "。" + s.Prompt + "。最终入场要求：" + s.EntryAction + "。最终出场要求：" + s.ExitAction + "。服装变化只发生在相邻片段之间的剪辑点，不在本镜头内展示变形。单一连续镜头，无文字、无字幕、无背景音乐。"
 	}
 	return nil
 }
