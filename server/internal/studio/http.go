@@ -54,9 +54,56 @@ func (a *App) Handler() http.Handler {
 			fail(w, 401, errors.New("需要有效的创作服务凭证"))
 			return
 		}
+		if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("X-Vowfilm-CSRF") != "1" {
+			fail(w, 403, errors.New("缺少同源请求标识"))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/auth/") {
+			a.authHTTP(w, r)
+			return
+		}
+		u := a.sessionUser(r)
+		if u == nil {
+			fail(w, 401, errors.New("请先登录"))
+			return
+		}
+		r = withUser(r, u)
+		if strings.HasPrefix(r.URL.Path, "/api/billing") {
+			a.billingHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/admin/") {
+			a.adminHTTP(w, r)
+			return
+		}
+		if r.Method != "GET" && r.Method != "HEAD" && !u.Can("project:write") {
+			fail(w, 403, errors.New("当前角色只有查看权限"))
+			return
+		}
+		if r.URL.Path == "/api/config" && r.Method == "PATCH" && !u.Can("config:manage") {
+			fail(w, 403, errors.New("只有管理员可以配置引擎"))
+			return
+		}
+		if r.Method != "GET" && r.Method != "HEAD" && strings.HasPrefix(r.URL.Path, "/api/projects") {
+			a.billingMu.Lock()
+			defer a.billingMu.Unlock()
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/projects/"), "/")
+			a.mu.Lock()
+			_, active := a.running[parts[0]]
+			a.mu.Unlock()
+			if active && (r.Method == "PATCH" || strings.Contains(r.URL.Path, "/assets")) {
+				fail(w, 409, errors.New("请等待当前任务结束后修改工程或素材"))
+				return
+			}
+		}
 		switch {
 		case r.URL.Path == "/api/config" && r.Method == "GET":
-			respond(w, 200, a.configView())
+			v := a.configView()
+			if !u.Can("config:manage") {
+				delete(v, "apiKeyHint")
+				delete(v, "baseUrl")
+			}
+			respond(w, 200, v)
 		case r.URL.Path == "/api/config" && r.Method == "PATCH":
 			var in struct {
 				BaseURL    string  `json:"baseUrl"`
@@ -100,7 +147,13 @@ func (a *App) Handler() http.Handler {
 }
 func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		respond(w, 200, a.store.List())
+		list := []*Project{}
+		for _, p := range a.store.List() {
+			if canRead(currentUser(r), p) {
+				list = append(list, p)
+			}
+		}
+		respond(w, 200, list)
 		return
 	}
 	if r.Method != "POST" {
@@ -109,6 +162,7 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var p Project
 	var in struct {
+		Scene          string `json:"scene"`
 		Title          string `json:"title"`
 		Occasion       string `json:"occasion"`
 		CustomPrompt   string `json:"customPrompt"`
@@ -124,18 +178,15 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err)
 		return
 	}
+	p.Scene = in.Scene
+	p.OwnerID = currentUser(r).ID
 	p.Title = strings.TrimSpace(in.Title)
 	p.Brief = in.Brief
 	p.Duration = in.Duration
 	p.Style = in.Style
 	p.Ratio = in.Ratio
 	p.Occasion, p.CustomPrompt, p.WardrobeMode, p.WardrobePrompt, p.EndingText = in.Occasion, in.CustomPrompt, in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
-	if p.Occasion == "" {
-		p.Occasion = "opening"
-	}
-	if p.WardrobeMode == "" {
-		p.WardrobeMode = "auto"
-	}
+	applyProjectDefaults(&p)
 	if err := validateProject(&p); err != nil {
 		fail(w, 400, err)
 		return
@@ -170,7 +221,7 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parts[0]
 	p := a.store.Get(id)
-	if p == nil {
+	if p == nil || !canRead(currentUser(r), p) {
 		fail(w, 404, errors.New("项目不存在"))
 		return
 	}
@@ -181,6 +232,7 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Method == "PATCH" {
 			var in struct {
+				Scene          string `json:"scene"`
 				Title          string `json:"title"`
 				Occasion       string `json:"occasion"`
 				CustomPrompt   string `json:"customPrompt"`
@@ -200,17 +252,21 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 				if isRunning(q.Status) {
 					return errors.New("请先暂停当前生成任务")
 				}
+				q.Scene = in.Scene
 				q.Title = strings.TrimSpace(in.Title)
 				q.Brief = in.Brief
 				q.Duration = in.Duration
 				q.Style = in.Style
 				q.Ratio = in.Ratio
 				q.Occasion, q.CustomPrompt, q.WardrobeMode, q.WardrobePrompt, q.EndingText = in.Occasion, in.CustomPrompt, in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
+				applyProjectDefaults(q)
 				if err := validateProject(q); err != nil {
 					return err
 				}
 				q.Shots = []Shot{}
 				q.Treatment = nil
+				q.GenerationMode = ""
+				q.PromptPolicy = ""
 				q.PosterURL = ""
 				q.FilmURL = ""
 				q.MusicTaskID = ""
@@ -259,7 +315,7 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if mode == "plan" || mode == "generate" || mode == "render" || mode == "review" {
-			if err := a.start(id, mode, ""); err != nil {
+			if err := a.startBilled(r, id, mode, ""); err != nil {
 				fail(w, 409, err)
 				return
 			}
@@ -272,6 +328,10 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 func (a *App) mediaHTTP(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/media/"), "/")
 	if len(parts) != 2 || !validID.MatchString(parts[0]) || !validMedia.MatchString(parts[1]) || a.store.Get(parts[0]) == nil {
+		fail(w, 404, errors.New("文件不存在"))
+		return
+	}
+	if !a.validMediaShare(r) && !canRead(currentUser(r), a.store.Get(parts[0])) {
 		fail(w, 404, errors.New("文件不存在"))
 		return
 	}
@@ -299,7 +359,7 @@ func (a *App) uploadHTTP(w http.ResponseWriter, r *http.Request, p *Project) {
 	}
 	defer r.MultipartForm.RemoveAll()
 	role := r.FormValue("role")
-	if role != "bride" && role != "groom" && role != "reference" && role != "music" {
+	if role != "bride" && role != "groom" && role != "reference" && role != "music" && role != "person" && role != "product" {
 		fail(w, 400, errors.New("请选择素材用途"))
 		return
 	}
@@ -381,7 +441,7 @@ func (a *App) uploadHTTP(w http.ResponseWriter, r *http.Request, p *Project) {
 			return errors.New("素材数量已达上限")
 		}
 		q.Assets = append(q.Assets, asset)
-		if role == "bride" || role == "groom" {
+		if role == "bride" || role == "groom" || role == "person" {
 			q.Demo = false
 		}
 		event(q, "已添加素材："+asset.Name)
@@ -470,8 +530,8 @@ func (a *App) shotHTTP(w http.ResponseWriter, r *http.Request, p *Project, parts
 			fail(w, 400, err)
 			return
 		}
-		if strings.TrimSpace(in.Prompt) == "" || len([]rune(in.Prompt)) > 6000 {
-			fail(w, 400, errors.New("镜头指令需为 1–6000 字"))
+		if strings.TrimSpace(in.Prompt) == "" || len([]rune(in.Prompt)) > 10000 {
+			fail(w, 400, errors.New("生成指令需为 1–10000 字"))
 			return
 		}
 		err := a.store.Update(p.ID, func(q *Project) error {
@@ -506,7 +566,7 @@ func (a *App) shotHTTP(w http.ResponseWriter, r *http.Request, p *Project, parts
 		return
 	}
 	if len(parts) == 2 && parts[1] == "generate" && r.Method == "POST" {
-		if err := a.start(p.ID, "shot", id); err != nil {
+		if err := a.startBilled(r, p.ID, "shot", id); err != nil {
 			fail(w, 409, err)
 			return
 		}

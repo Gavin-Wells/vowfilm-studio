@@ -101,6 +101,11 @@ func (a *App) configView() map[string]any {
 }
 
 func (a *App) updateProviderSettings(in providerFile, updateKey bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.running) > 0 {
+		return errors.New("请等待所有创作任务结束后修改引擎配置")
+	}
 	baseURL := strings.TrimSpace(in.BaseURL)
 	llmModel := strings.TrimSpace(in.LLMModel)
 	videoModel := strings.TrimSpace(in.VideoModel)

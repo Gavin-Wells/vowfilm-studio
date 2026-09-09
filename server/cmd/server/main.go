@@ -1,17 +1,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
+	"vowfilm/server/internal/config"
 	"vowfilm/server/internal/studio"
 )
 
@@ -22,19 +22,8 @@ func val(key, def string) string {
 	return def
 }
 func main() {
-	if f, err := os.Open(val("VOWFILM_ENV_FILE", ".env")); err == nil {
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			s := strings.TrimSpace(scanner.Text())
-			if s == "" || strings.HasPrefix(s, "#") {
-				continue
-			}
-			k, v, ok := strings.Cut(s, "=")
-			if ok && os.Getenv(k) == "" {
-				_ = os.Setenv(k, strings.Trim(v, "\"'"))
-			}
-		}
-		f.Close()
+	if err := config.LoadEnv(val("VOWFILM_ENV_FILE", ".env")); err != nil {
+		log.Fatal(err)
 	}
 	data, _ := filepath.Abs(val("VOWFILM_DATA_DIR", "data"))
 	concurrency, _ := strconv.Atoi(val("VOWFILM_CONCURRENCY", "2"))
@@ -42,6 +31,9 @@ func main() {
 		concurrency = 2
 	}
 	cfg := studio.Config{
+		DatabaseDriver: val("DATABASE_DRIVER", "sqlite"),
+		DatabaseURL:    os.Getenv("DATABASE_URL"),
+		SetupToken:     os.Getenv("VOWFILM_SETUP_TOKEN"),
 		PublicMediaURL: os.Getenv("PUBLIC_MEDIA_BASE_URL"),
 		DataDir:        data,
 		BaseURL:        val("STARNET_BASE_URL", val("OPENAI_BASE_URL", "https://open.embervale.cn")),
@@ -55,6 +47,11 @@ func main() {
 	if len(cfg.Token) < 24 {
 		log.Fatal("GO_BACKEND_TOKEN must contain at least 24 characters")
 	}
+	listener, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer listener.Close()
 	app, err := studio.New(cfg)
 	if err != nil {
 		log.Fatal(err)
@@ -70,7 +67,7 @@ func main() {
 		_ = srv.Shutdown(ctx)
 	}()
 	log.Printf("Vowfilm Go studio listening on %s", cfg.Addr)
-	if err = srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err = srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

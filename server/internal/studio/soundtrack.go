@@ -50,12 +50,12 @@ func (a *App) sharedMediaURL(id, name string) (string, error) {
 func (p *Provider) SubmitMusic(ctx context.Context, project *Project, mediaURL string) (string, error) {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
-	profile := profileFor(project.Style)
+	profile := profileForProject(project)
 	direction := profile.Music
 	if project.Treatment != nil {
 		direction = project.Treatment.MusicDirection
 	}
-	prompt := fmt.Sprintf("Compose one original instrumental wedding soundtrack, exactly %d seconds. Authoritative creative music direction: %s. Evolving lead melody, contrasting harmony and five differentiated sections: 0-13%% opening anticipation; 13-40%% melodic development; 40-67%% contrasting bridge and breathing space; 67-87%% celebratory climax; 87-100%% resolved coda. Keep a %d BPM pulse. Follow the creative direction for instruments and genre. No unchanging loop, vocals or speech. Match the picture edit and chapter transitions. Screening context: %s", project.Duration, direction, targetBPM(project), occasionDirection(project))
+	prompt := fmt.Sprintf("Compose one original instrumental video soundtrack, exactly %d seconds. Authoritative creative music direction: %s. Evolving lead melody, contrasting harmony and five differentiated sections: 0-13%% opening anticipation; 13-40%% melodic development; 40-67%% contrasting bridge and breathing space; 67-87%% celebratory climax; 87-100%% resolved coda. Keep a %d BPM pulse. Follow the creative direction for instruments and genre. No unchanging loop, vocals or speech. Match the picture edit and chapter transitions. Screening context: %s", project.Duration, direction, targetBPM(project), occasionDirection(project))
 	if endHold(project) > 0 {
 		prompt += fmt.Sprintf(" End the final musical resolution by %.1f seconds, then leave quiet space for the host.", float64(project.Duration)-endHold(project))
 	}

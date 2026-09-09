@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -16,18 +17,23 @@ import (
 
 type MediaInfo struct {
 	Duration      float64
+	VideoDuration float64
+	AudioDuration float64
 	Width, Height int
+	HasAudio      bool
 }
 
 func probe(ctx context.Context, path string) (MediaInfo, error) {
-	raw, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json", path).Output()
+	raw, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height,duration:format=duration", "-of", "json", path).Output()
 	if err != nil {
 		return MediaInfo{}, err
 	}
 	var result struct {
 		Streams []struct {
-			Width  int `json:"width"`
-			Height int `json:"height"`
+			CodecType string `json:"codec_type"`
+			Duration  string `json:"duration"`
+			Width     int    `json:"width"`
+			Height    int    `json:"height"`
 		} `json:"streams"`
 		Format struct {
 			Duration string `json:"duration"`
@@ -37,7 +43,22 @@ func probe(ctx context.Context, path string) (MediaInfo, error) {
 		return MediaInfo{}, errors.New("视频没有有效画面")
 	}
 	duration, err := strconv.ParseFloat(result.Format.Duration, 64)
-	return MediaInfo{duration, result.Streams[0].Width, result.Streams[0].Height}, err
+	info := MediaInfo{Duration: duration}
+	for _, stream := range result.Streams {
+		if stream.CodecType == "video" && info.Width == 0 {
+			info.Width = stream.Width
+			info.Height = stream.Height
+			info.VideoDuration, _ = strconv.ParseFloat(stream.Duration, 64)
+		}
+		if stream.CodecType == "audio" {
+			info.HasAudio = true
+			info.AudioDuration, _ = strconv.ParseFloat(stream.Duration, 64)
+		}
+	}
+	if info.Width == 0 || info.Height == 0 {
+		return MediaInfo{}, errors.New("视频没有有效画面")
+	}
+	return info, err
 }
 func ffmpeg(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, "ffmpeg", append([]string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y"}, args...)...)
@@ -58,6 +79,10 @@ func thumbnail(ctx context.Context, src, dst string) error {
 	return ffmpeg(ctx, "-ss", "2", "-i", src, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", dst)
 }
 func sourceTrimStart(p *Project, index int, duration float64) float64 {
+	if sceneID(p) == "commerce" {
+		// Advertising prompts define the actual first frame at local time 00:00.
+		return 0
+	}
 	if p.Treatment != nil {
 		if index == len(p.Shots)-1 && endHold(p) > 0 {
 			active := math.Max(1.0/24, p.Shots[index].EditSeconds-endHold(p))
@@ -75,6 +100,9 @@ func sourceTrimStart(p *Project, index int, duration float64) float64 {
 	return .25
 }
 func (a *App) render(ctx context.Context, p *Project) (string, error) {
+	if isDirectCommerce(p) {
+		return a.renderCommerceDirect(ctx, p)
+	}
 	if len(p.Shots) == 0 {
 		return "", errors.New("缺少镜头")
 	}
@@ -181,7 +209,7 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	}
 	comment := "Created with Vowfilm; AI-generated video"
 	if p.Demo {
-		comment += "; fictional wedding demo"
+		comment += "; creative demonstration"
 	}
 	if err := ffmpeg(ctx, "-i", editPath, "-stream_loop", "-1", "-i", music, "-filter_complex_threads", "1", "-filter_complex", audio, "-vf", subtitleFilter, "-map", "0:v:0", "-map", "[a]", "-t", strconv.Itoa(p.Duration), "-r", "24", "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-pix_fmt", "yuv420p", "-threads", "2", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-movflags", "+faststart", "-metadata", "title="+p.Title, "-metadata", "comment="+comment, dest); err != nil {
 		return "", err
@@ -222,6 +250,26 @@ func makeASS(p *Project, width, height int) string {
 			fmt.Fprintf(&b, "Dialogue: 0,%s,%s,%s,,0,0,0,,{\\fad(%d,%d)}%s\n", assTime(start), assTime(end), style, fade, fade, assEscape(text))
 		}
 	}
+
+	if sceneID(p) == "commerce" {
+		// Project titles are management labels, never implicit advertising overlays.
+		if commercialTextRequested(p) {
+			for _, s := range p.Shots {
+				if strings.TrimSpace(s.Caption) != "" {
+					line(s.TimelineStart+.15, s.TimelineStart+s.EditSeconds-.15, "Caption", s.Caption)
+				}
+			}
+		}
+		closing := p.EndingText
+		if closing == "" && commercialTextRequested(p) && p.Treatment != nil {
+			closing = p.Treatment.ClosingLine
+		}
+		if closing != "" {
+			line(math.Max(0, float64(p.Duration)-3), float64(p.Duration), "Title", closing)
+		}
+		return b.String()
+	}
+
 	if p.Treatment != nil {
 		header := b.String()
 		b.Reset()
@@ -339,4 +387,83 @@ func composeMusic(path string, seconds int) error {
 		binary.LittleEndian.PutUint16(data[44+i*2:], uint16(int16(v*27000)))
 	}
 	return os.WriteFile(path, data, 0600)
+}
+
+// Direct advertisements keep model timing and native speech/music. No clip handles,
+// concatenation, synthetic score, fades, or automatic titles are applied.
+func validateDirectMedia(p *Project, info MediaInfo) error {
+	// Video models may append one final frame and several AAC padding packets.
+	// Bound both the visual timeline and the container instead of cutting speech.
+	if math.Abs(info.VideoDuration-15) > 1.0/24+0.001 || math.Abs(info.Duration-15) > 0.15 {
+		return fmt.Errorf("直出广告需为15秒，实际%.3f秒", info.Duration)
+	}
+	if !info.HasAudio || info.AudioDuration < 14.85 {
+		return errors.New("直出广告缺少原生音轨，请检查视频模型是否支持音画生成")
+	}
+	w, h := 1280, 720
+	if p.Ratio == "9:16" {
+		w, h = 720, 1280
+	}
+	if info.Width != w || info.Height != h {
+		return fmt.Errorf("直出广告画幅不符：收到%dx%d，预期%dx%d", info.Width, info.Height, w, h)
+	}
+	return nil
+}
+func (a *App) renderCommerceDirect(ctx context.Context, p *Project) (string, error) {
+	if err := layout(p); err != nil {
+		return "", err
+	}
+	s := p.Shots[0]
+	if s.Status != "completed" || s.VideoFile == "" {
+		return "", errors.New("整条广告尚未生成完成")
+	}
+	dir := filepath.Join(a.cfg.DataDir, p.ID)
+	source := filepath.Join(dir, s.VideoFile)
+	info, err := probe(ctx, source)
+	if err != nil {
+		return "", err
+	}
+	if err = validateDirectMedia(p, info); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("film-r%d.mp4", p.Revision)
+	target := filepath.Join(dir, name)
+	if strings.TrimSpace(p.EndingText) != "" {
+		// Only an explicit ending overlay is rendered; keep the original audio stream.
+		overlay := *p
+		overlay.Shots = append([]Shot(nil), p.Shots...)
+		overlay.Shots[0].Caption = ""
+		overlay.Treatment = nil
+		ass := filepath.Join(dir, "direct-ending.ass")
+		if err = os.WriteFile(ass, []byte(makeASS(&overlay, info.Width, info.Height)), 0600); err != nil {
+			return "", err
+		}
+		err = ffmpeg(ctx, "-i", source, "-map", "0:v:0", "-map", "0:a:0", "-vf", "ass="+ass, "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-threads", "2", "-c:a", "copy", "-movflags", "+faststart", target)
+	} else {
+		src, e := os.Open(source)
+		if e != nil {
+			return "", e
+		}
+		defer src.Close()
+		dst, e := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+		if e != nil {
+			return "", e
+		}
+		_, err = io.Copy(dst, src)
+		closeErr := dst.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	final, err := probe(ctx, target)
+	if err != nil {
+		return "", err
+	}
+	if err = validateDirectMedia(p, final); err != nil {
+		return "", err
+	}
+	return name, nil
 }

@@ -14,7 +14,16 @@ async function proxy(request: Request) {
     origin !== source.origin
   )
     return Response.json({ error: '请求来源不匹配' }, { status: 403 });
-  if (!/^\/api\/(config|projects|media)(\/|$)/.test(source.pathname))
+  if (
+    !['GET', 'HEAD'].includes(request.method) &&
+    request.headers.get('X-Vowfilm-CSRF') !== '1'
+  )
+    return Response.json({ error: '缺少同源请求标识' }, { status: 403 });
+  if (
+    !/^\/api\/(config|projects|media|auth|billing|admin)(\/|$)/.test(
+      source.pathname,
+    )
+  )
     return Response.json({ error: '接口不存在' }, { status: 404 });
   if (!secret)
     return Response.json(
@@ -24,6 +33,11 @@ async function proxy(request: Request) {
   const headers = new Headers();
   for (const name of [
     'content-type',
+    'cookie',
+    'user-agent',
+    'x-vowfilm-csrf',
+    'x-vowfilm-quote',
+    'idempotency-key',
     'range',
     'if-none-match',
     'if-modified-since',
@@ -32,6 +46,10 @@ async function proxy(request: Request) {
     if (value) headers.set(name, value);
   }
   headers.set('X-Vowfilm-Token', secret);
+  headers.set(
+    'X-Vowfilm-Proto',
+    source.protocol === 'https:' ? 'https' : 'http',
+  );
   try {
     const response = await fetch(
       new URL(source.pathname + source.search, base),
@@ -52,6 +70,8 @@ async function proxy(request: Request) {
     const output = new Headers();
     for (const name of [
       'content-type',
+      'set-cookie',
+      'retry-after',
       'content-length',
       'content-range',
       'accept-ranges',

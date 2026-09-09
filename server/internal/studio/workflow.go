@@ -15,28 +15,81 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"vowfilm/server/internal/platform"
+	"vowfilm/server/internal/storage"
 )
 
 type App struct {
-	cfg      Config
-	cfgMu    sync.RWMutex
-	store    *Store
-	provider *Provider
-	mu       sync.Mutex
-	running  map[string]context.CancelFunc
-	slots    chan struct{}
+	accounts  *platform.Service
+	database  *storage.SQLRepository
+	billingMu sync.Mutex
+	cfg       Config
+	cfgMu     sync.RWMutex
+	store     *Store
+	provider  *Provider
+	mu        sync.Mutex
+	running   map[string]context.CancelFunc
+	slots     chan struct{}
 }
 
 func New(cfg Config) (*App, error) {
 	if cfg.Concurrency < 1 {
 		cfg.Concurrency = 2
 	}
-	s, err := NewStore(cfg.DataDir)
+	if err := os.MkdirAll(cfg.DataDir, 0700); err != nil {
+		return nil, err
+	}
+	driver := cfg.DatabaseDriver
+	if driver == "" {
+		driver = "sqlite"
+	}
+	dsn := cfg.DatabaseURL
+	if driver == "sqlite" && dsn == "" {
+		dsn = filepath.Join(cfg.DataDir, "platform.sqlite")
+	}
+	database, err := storage.Open(driver, dsn)
 	if err != nil {
 		return nil, err
 	}
+	s, err := NewRepositoryStore(database)
+	if err != nil {
+		_ = database.Close()
+		return nil, err
+	}
+	// One-time import preserves local projects; SQLite/PG hold all new metadata.
+	if len(s.List()) == 0 {
+		legacy, err := NewStore(cfg.DataDir)
+		if err != nil {
+			_ = database.Close()
+			return nil, err
+		}
+		for _, p := range legacy.List() {
+			if err = s.Put(p); err != nil {
+				_ = database.Close()
+				return nil, err
+			}
+		}
+	}
+	if cfg.SetupToken == "" {
+		path := filepath.Join(cfg.DataDir, "admin-setup.txt")
+		raw, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			raw = []byte(platform.Token())
+			err = os.WriteFile(path, raw, 0600)
+		}
+		if err != nil {
+			_ = database.Close()
+			return nil, err
+		}
+		cfg.SetupToken = strings.TrimSpace(string(raw))
+	}
 	cfg = loadProviderOverrides(cfg.DataDir, cfg)
-	a := &App{cfg: cfg, store: s, provider: newProvider(cfg), running: map[string]context.CancelFunc{}, slots: make(chan struct{}, cfg.Concurrency)}
+	accounts := platform.New(database, cfg.SetupToken)
+	if err = database.ReleaseInterrupted(); err != nil {
+		_ = database.Close()
+		return nil, err
+	}
+	a := &App{cfg: cfg, store: s, provider: newProvider(cfg), running: map[string]context.CancelFunc{}, slots: make(chan struct{}, cfg.Concurrency), accounts: accounts, database: database}
 	if len(s.List()) == 0 {
 		p := &Project{ID: "film_demo", Title: "与你，快乐加倍", Brief: "制作60秒欢快婚礼短片，阳光海边花园、统一成年虚构新人、自然笑容、牵手起跑、转圈、朋友抛花瓣与碰杯庆祝，最后拥抱收尾。用动作和构图衔接镜头，配合有旋律和段落变化的欢快音乐。", Duration: 60, Style: "joyful", Ratio: "16:9", Status: "draft", Demo: true, Shots: []Shot{}, Assets: []Asset{}, Events: []Event{}, CreatedAt: now(), UpdatedAt: now(), Revision: 1, GenerationBudget: 180, OutputResolution: "720P", LLMModel: cfg.LLMModel, VideoModel: cfg.VideoModel}
 		event(p, "演示工程已创建，使用虚构人物与原创配乐")
@@ -46,21 +99,12 @@ func New(cfg Config) (*App, error) {
 	}
 	for _, p := range s.List() {
 		if isRunning(p.Status) {
-			id := p.ID
-			mode := "generate"
-			if p.Status == "planning" {
-				mode = "plan"
-			}
-			if p.Status == "rendering" {
-				mode = "render"
-			}
-			_ = s.Update(id, func(q *Project) error {
+			if err = s.Update(p.ID, func(q *Project) error {
 				q.Status = "cancelled"
-				event(q, "服务恢复，继续执行已保存的任务")
+				event(q, "服务恢复：未完成的冻结额度已释放，请确认新报价后继续")
 				return nil
-			})
-			if err = a.start(id, mode, ""); err != nil {
-				log.Printf("resume %s: %v", id, err)
+			}); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -88,7 +132,7 @@ func (a *App) cancel(id string) {
 		return nil
 	})
 }
-func (a *App) start(id, mode, shotID string) error {
+func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 	a.cfgMu.RLock()
 	apiKey := a.cfg.APIKey
 	a.cfgMu.RUnlock()
@@ -104,12 +148,18 @@ func (a *App) start(id, mode, shotID string) error {
 	if p == nil {
 		return errors.New("项目不存在")
 	}
+	if err := validateCommerceAction(p, mode); err != nil {
+		return err
+	}
 	if mode == "generate" || mode == "shot" {
 		for _, asset := range p.Assets {
-			if (asset.Role == "bride" || asset.Role == "groom") && asset.ProviderAssetID == "" {
-				return errors.New("新人照片需要先在素材库中绑定已完成本人授权的 asset:// 素材")
+			if (asset.Role == "bride" || asset.Role == "groom" || asset.Role == "person") && asset.ProviderAssetID == "" {
+				return errors.New("人物照片需要先在素材库中绑定已完成本人授权的 asset:// 素材")
 			}
 		}
+	}
+	if mode == "review" && len(p.Shots) == 0 {
+		return errors.New("请先编排分镜再审阅")
 	}
 	if mode == "render" {
 		if len(p.Shots) == 0 {
@@ -167,12 +217,21 @@ func (a *App) start(id, mode, shotID string) error {
 	if err != nil {
 		return err
 	}
+	chargeID := ""
+	if len(chargeIDs) > 0 {
+		chargeID = chargeIDs[0]
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Minute)
 	a.running[id] = cancel
 	go func() {
 		defer cancel()
 		defer func() { a.mu.Lock(); delete(a.running, id); a.mu.Unlock() }()
-		err := a.run(ctx, id, mode)
+		err := a.run(ctx, id, mode, shotID)
+		if chargeID != "" {
+			if settleErr := a.accounts.Repo.Settle(chargeID, err == nil); settleErr != nil {
+				log.Printf("settlement %s: %v", chargeID, settleErr)
+			}
+		}
 		if err != nil {
 			log.Printf("project %s: %v", id, err)
 			_ = a.store.Update(id, func(q *Project) error {
@@ -189,8 +248,14 @@ func (a *App) start(id, mode, shotID string) error {
 	}()
 	return nil
 }
-func (a *App) run(ctx context.Context, id, mode string) error {
+func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string) error {
 	p := a.store.Get(id)
+	if p == nil {
+		return errors.New("项目不存在")
+	}
+	if err := validateCommerceAction(p, mode); err != nil {
+		return err
+	}
 	if mode == "review" && len(p.Shots) > 0 {
 		if err := a.store.Update(id, func(q *Project) error {
 			q.Status = "planning"
@@ -225,9 +290,13 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 		}); err != nil {
 			return err
 		}
-		if p.Treatment == nil {
+		if p.Treatment == nil && sceneID(p) != "commerce" {
 			_ = a.store.Update(id, func(q *Project) error {
-				event(q, "GPT-6 正在理解自定义要求，规划现场叙事与分章造型")
+				if sceneID(q) == "commerce" {
+					event(q, "导演正在理解商品资料，规划广告结构与素材职责")
+				} else {
+					event(q, "GPT-6 正在理解自定义要求，规划现场叙事与分章造型")
+				}
 				return nil
 			})
 			treatment, err := a.provider.Develop(ctx, p)
@@ -236,7 +305,11 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 			}
 			if err = a.store.Update(id, func(q *Project) error {
 				q.Treatment = treatment
-				event(q, "故事与造型方案已保存，正在编排动作与换装衔接")
+				if sceneID(q) == "commerce" {
+					event(q, "广告方案已保存，正在编排镜头动作与首尾状态")
+				} else {
+					event(q, "故事与造型方案已保存，正在编排动作与换装衔接")
+				}
 				return nil
 			}); err != nil {
 				return err
@@ -251,6 +324,11 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 			q.Synopsis = synopsis
 			q.Shots = shots
 			q.MusicSections = scoreSections(q)
+			if sceneID(q) == "commerce" {
+				q.GenerationMode = commerceDirectMode
+				q.Treatment = nil
+				q.MusicSections = nil
+			}
 			q.MusicTaskID = ""
 			q.MusicFile = ""
 			q.MusicSource = ""
@@ -258,12 +336,17 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 			q.FilmURL = ""
 			q.LLMModel = a.cfg.LLMModel
 			q.VideoModel = a.cfg.VideoModel
+			q.PromptPolicy = advertisingVersion(q)
 			if err := layout(q); err != nil {
 				return err
 			}
 			q.Status = "planned"
 			q.Progress = 16
-			event(q, fmt.Sprintf("星网导演已完成 %d 个镜头与转场编排", len(shots)))
+			if isDirectCommerce(q) {
+				event(q, "v3 整条广告指令已就绪：一次直出15秒，保留原生声音")
+			} else {
+				event(q, fmt.Sprintf("星网导演已完成 %d 个镜头与转场编排", len(shots)))
+			}
 			return nil
 		}); err != nil {
 			return err
@@ -271,6 +354,9 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 		if mode == "plan" {
 			return nil
 		}
+	}
+	if mode == "review" {
+		return a.store.Update(id, func(q *Project) error { q.Status = "planned"; return nil })
 	}
 	if mode != "render" {
 		if p.Treatment == nil && p.Style == "garden" && strings.Contains(p.VideoModel, "fast") {
@@ -291,6 +377,9 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 		var wg sync.WaitGroup
 		errs := make(chan error, len(p.Shots))
 		for _, s := range p.Shots {
+			if mode == "shot" && len(selectedShots) > 0 && s.ID != selectedShots[0] {
+				continue
+			}
 			if s.Status == "completed" && s.VideoFile != "" {
 				continue
 			}
@@ -326,10 +415,21 @@ func (a *App) run(ctx context.Context, id, mode string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if mode == "shot" {
+		return a.store.Update(id, func(q *Project) error {
+			q.Status = "planned"
+			event(q, "局部镜头已完成，可单独合成影片")
+			return nil
+		})
+	}
 	if err := a.store.Update(id, func(q *Project) error {
 		q.Status = "rendering"
 		q.Progress = 86
-		event(q, "镜头已就绪，正在剪辑、排字幕与配乐")
+		if isDirectCommerce(q) {
+			event(q, "整条广告已生成，正在校验15秒画面与原生音轨")
+		} else {
+			event(q, "镜头已就绪，正在剪辑、排字幕与配乐")
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -392,7 +492,7 @@ func (a *App) references(p *Project) ([]map[string]any, string, error) {
 		if asset.ProviderAssetID != "" {
 			u = "asset://" + asset.ProviderAssetID
 		} else {
-			if asset.Role == "bride" || asset.Role == "groom" {
+			if asset.Role == "bride" || asset.Role == "groom" || asset.Role == "person" {
 				return nil, "", errors.New("人物素材尚未授权")
 			}
 			raw, err := os.ReadFile(filepath.Join(a.cfg.DataDir, p.ID, asset.File))
@@ -405,7 +505,7 @@ func (a *App) references(p *Project) ([]map[string]any, string, error) {
 			u = "data:" + asset.MIME + ";base64," + base64.StdEncoding.EncodeToString(raw)
 		}
 		refs = append(refs, map[string]any{"type": "image_url", "image_url": map[string]string{"url": u}, "role": "reference_image"})
-		role := map[string]string{"bride": "新娘的人物身份和面貌；服装按本镜造型要求", "groom": "新郎的人物身份和面貌；服装按本镜造型要求", "reference": "环境和视觉风格，不替换人物身份"}[asset.Role]
+		role := map[string]string{"bride": "新娘的人物身份和面貌；服装按本镜造型要求", "groom": "新郎的人物身份和面貌；服装按本镜造型要求", "person": "指定人物身份和面貌，服装按本镜要求", "product": "商品外观、包装、颜色和比例，不添加未知功效", "reference": "环境和视觉风格，不替换人物身份"}[asset.Role]
 		guides = append(guides, fmt.Sprintf("图片%d参考%s。", len(refs), role))
 	}
 	return refs, strings.Join(guides, ""), nil
@@ -509,17 +609,25 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 		return fmt.Errorf("%s 下载未完成：%w", s.Title, err)
 	}
 	info, err := probe(ctx, path)
-	if err != nil || info.Duration+0.08 < s.EditSeconds+0.25 {
+	mediaErr := err
+	if mediaErr == nil {
+		if isDirectCommerce(p) {
+			mediaErr = validateDirectMedia(p, info)
+		} else if info.Duration+0.08 < s.EditSeconds+0.25 {
+			mediaErr = errors.New("生成片段时长不足")
+		}
+	}
+	if mediaErr != nil {
 		_ = a.store.Update(id, func(q *Project) error {
 			for i := range q.Shots {
 				if q.Shots[i].ID == sid {
 					q.Shots[i].Status = "failed"
-					q.Shots[i].Error = "生成片段时长不足或无法解码"
+					q.Shots[i].Error = mediaErr.Error()
 				}
 			}
 			return nil
 		})
-		return fmt.Errorf("%s 的媒体检查未通过", s.Title)
+		return fmt.Errorf("%s 的媒体检查未通过：%w", s.Title, mediaErr)
 	}
 	thumb := strings.TrimSuffix(file, ".mp4") + ".jpg"
 	if err = thumbnail(ctx, path, filepath.Join(dir, thumb)); err != nil {

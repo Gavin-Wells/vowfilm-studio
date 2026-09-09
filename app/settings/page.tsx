@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 import {
-  Aperture,
   ArrowLeft,
   ChevronRight,
   KeyRound,
@@ -85,12 +85,7 @@ export default function SettingsPage() {
       <div className="studio-shell new-film-shell">
         <header className="topbar">
           <Link className="brand" href="/" aria-label="誓光创作工作台">
-            <span className="brand-icon">
-              <Aperture size={24} strokeWidth={1.6} />
-            </span>
-            <span>
-              誓光 <em>VOWFILM</em>
-            </span>
+            <BrandLogo />
           </Link>
           <div className="breadcrumb">
             创作空间 <ChevronRight size={14} />
@@ -163,8 +158,8 @@ export default function SettingsPage() {
                   />
                 </label>
                 <p className="fine-print">
-                  Key 保存在服务端 <code>data/provider.json</code>，不会写入浏览器或
-                  Git。修改 Key 时重新输入完整内容即可。
+                  Key 保存在服务端 <code>data/provider.json</code>
+                  ，不会写入浏览器或 Git。修改 Key 时重新输入完整内容即可。
                 </p>
               </div>
             </section>
