@@ -79,7 +79,7 @@ func thumbnail(ctx context.Context, src, dst string) error {
 	return ffmpeg(ctx, "-ss", "2", "-i", src, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", dst)
 }
 func sourceTrimStart(p *Project, index int, duration float64) float64 {
-	if sceneID(p) == "commerce" {
+	if sceneID(p) == "commerce" || p.CreationMode == "template" {
 		// Advertising prompts define the actual first frame at local time 00:00.
 		return 0
 	}
@@ -270,6 +270,20 @@ func makeASS(p *Project, width, height int) string {
 		return b.String()
 	}
 
+	if p.CreationMode == "template" {
+		line(.45, 2.7, "Title", p.Title)
+		for _, s := range p.Shots {
+			if s.Caption != "" {
+				line(s.TimelineStart+.3, s.TimelineStart+s.EditSeconds-.25, "Caption", s.Caption)
+			}
+		}
+		closing := strings.TrimSpace(p.EndingText)
+		if closing == "" {
+			closing = "跨越时光，依然是你"
+		}
+		fmt.Fprintf(&b, "Dialogue: 1,%s,%s,Title,,0,0,0,,{\\fad(180,0)}%s\n", assTime(float64(p.Duration)-3), assTime(float64(p.Duration)), assEscape(closing))
+		return b.String()
+	}
 	if p.Treatment != nil {
 		header := b.String()
 		b.Reset()

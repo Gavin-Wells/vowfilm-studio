@@ -86,6 +86,8 @@ export const styleChoices = [
 ];
 
 export type ProjectDraft = {
+  creationMode: string;
+  templateId: string;
   scene: string;
   title: string;
   brief: string;
@@ -100,6 +102,8 @@ export type ProjectDraft = {
 };
 
 export const creativeDefaults = {
+  creationMode: 'agent',
+  templateId: '',
   scene: 'wedding',
   occasion: 'opening',
   customPrompt: '',
@@ -223,6 +227,8 @@ export function changeScene<T extends ProjectDraft>(draft: T, id: string): T {
 
 export function projectDraft(project: Project): ProjectDraft {
   return {
+    creationMode: project.creationMode || 'agent',
+    templateId: project.templateId || '',
     scene: project.scene || 'wedding',
     title: project.autoTitle ? '' : project.title,
     brief: project.brief,

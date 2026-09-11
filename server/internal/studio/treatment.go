@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"vowfilm/server/internal/domain"
+	"vowfilm/server/internal/templates"
 )
 
 type Look = domain.Look
@@ -64,6 +65,11 @@ func targetBPM(p *Project) int {
 	return profileFor(p.Style).BPM
 }
 func shotCount(p *Project) int {
+	if p.CreationMode == "template" {
+		if t, ok := templates.Find(p.TemplateID); ok {
+			return len(t.Shots)
+		}
+	}
 	if sceneID(p) == "commerce" {
 		return 1
 	}
@@ -86,7 +92,7 @@ func occasionDirection(p *Project) string {
 	}
 }
 func endHold(p *Project) float64 {
-	if p.Treatment == nil || occasion(p) == "warmup" || sceneID(p) != "wedding" {
+	if (p.Treatment == nil && p.CreationMode != "template") || occasion(p) == "warmup" || sceneID(p) != "wedding" {
 		return 0
 	}
 	if occasion(p) == "story" {

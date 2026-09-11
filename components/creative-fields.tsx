@@ -30,6 +30,7 @@ export function CreativeFields({
   const [advanced, setAdvanced] = useState(false);
   const [inspiration, setInspiration] = useState(false);
   const [dismissedError, setDismissedError] = useState('');
+  const templated = draft.creationMode === 'template';
   const promptInput = useRef<HTMLTextAreaElement>(null);
   const duration =
     draft.duration < 60
@@ -42,8 +43,9 @@ export function CreativeFields({
       : draft.scene === 'family'
         ? '家族素材'
         : '故事素材';
-  const promptPlaceholder =
-    draft.scene === 'commerce'
+  const promptPlaceholder = templated
+    ? '例如：光线更温暖、表情自然。镜头顺序和场景沿用模板。'
+    : draft.scene === 'commerce'
       ? '例如：展示一次使用过程，配简短旁白，不加字幕。'
       : '例如：温暖自然、少量字幕，避免群像。';
   const advancedOpen = advanced || Boolean(error && error !== dismissedError);
@@ -70,16 +72,19 @@ export function CreativeFields({
       >
         <div className="creative-field-heading">
           <label htmlFor="custom-prompt">
-            拍摄要求 <span className="creative-optional">选填</span>
+            {templated ? '画面补充' : '拍摄要求'}{' '}
+            <span className="creative-optional">选填</span>
           </label>
-          <CollapsibleTrigger
-            type="button"
-            className="creative-inline-action"
-            disabled={disabled}
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            {inspiration ? '收起灵感' : '参考灵感'}
-          </CollapsibleTrigger>
+          {!templated && (
+            <CollapsibleTrigger
+              type="button"
+              className="creative-inline-action"
+              disabled={disabled}
+            >
+              <Sparkles size={14} aria-hidden="true" />
+              {inspiration ? '收起灵感' : '参考灵感'}
+            </CollapsibleTrigger>
+          )}
         </div>
         <textarea
           ref={promptInput}
@@ -139,113 +144,125 @@ export function CreativeFields({
         </CollapsibleTrigger>
         <CollapsibleContent className="creative-advanced-panel">
           <div className="creative-advanced-fields">
-            <fieldset className="creative-setting-group">
-              <legend>成片规格</legend>
-              <div className="creative-spec-grid">
-                <div className="creative-field">
-                  <label htmlFor="project-duration">时长</label>
-                  <ChoiceSelect
-                    disabled={disabled}
-                    id="project-duration"
-                    value={String(draft.duration)}
-                    onChange={(s) =>
-                      setDraft({ ...draft, duration: Number(s) })
-                    }
-                    label="影片时长"
-                    items={(draft.scene === 'commerce'
-                      ? [15]
-                      : [60, 120, 180, 240]
-                    ).map((s) => ({
-                      value: String(s),
-                      label: s < 60 ? `${s} 秒` : `${s / 60} 分钟`,
-                    }))}
-                  />
-                </div>
-                <div className="creative-field">
-                  <label htmlFor="project-ratio">画幅</label>
-                  <ChoiceSelect
-                    disabled={disabled}
-                    id="project-ratio"
-                    value={draft.ratio}
-                    onChange={(ratio) => setDraft({ ...draft, ratio })}
-                    label="影片画幅"
-                    items={[
-                      { value: '16:9', label: '16:9 横屏' },
-                      { value: '9:16', label: '9:16 竖屏' },
-                    ]}
-                  />
-                </div>
-              </div>
-            </fieldset>
+            {templated ? (
+              <p className="fine-print">
+                当前模板固定 {duration}、{draft.ratio}
+                、六幕结构与分章造型。名称和片尾寄语可自行填写。
+              </p>
+            ) : (
+              <>
+                <fieldset className="creative-setting-group">
+                  <legend>成片规格</legend>
+                  <div className="creative-spec-grid">
+                    <div className="creative-field">
+                      <label htmlFor="project-duration">时长</label>
+                      <ChoiceSelect
+                        disabled={disabled}
+                        id="project-duration"
+                        value={String(draft.duration)}
+                        onChange={(s) =>
+                          setDraft({ ...draft, duration: Number(s) })
+                        }
+                        label="影片时长"
+                        items={(draft.scene === 'commerce'
+                          ? [15]
+                          : [60, 120, 180, 240]
+                        ).map((s) => ({
+                          value: String(s),
+                          label: s < 60 ? `${s} 秒` : `${s / 60} 分钟`,
+                        }))}
+                      />
+                    </div>
+                    <div className="creative-field">
+                      <label htmlFor="project-ratio">画幅</label>
+                      <ChoiceSelect
+                        disabled={disabled}
+                        id="project-ratio"
+                        value={draft.ratio}
+                        onChange={(ratio) => setDraft({ ...draft, ratio })}
+                        label="影片画幅"
+                        items={[
+                          { value: '16:9', label: '16:9 横屏' },
+                          { value: '9:16', label: '9:16 竖屏' },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </fieldset>
 
-            <fieldset className="creative-setting-group">
-              <legend>导演偏好</legend>
-              <div className="creative-setting-row">
-                <label htmlFor="project-occasion">用途</label>
-                <ChoiceSelect
-                  disabled={disabled}
-                  id="project-occasion"
-                  value={draft.occasion}
-                  onChange={(occasion) => setDraft({ ...draft, occasion })}
-                  label="影片用途"
-                  items={Object.entries(sceneOccasions(draft.scene)).map(
-                    ([value, label]) => ({ value, label }),
-                  )}
-                />
-              </div>
-              <div className="creative-setting-row">
-                <label htmlFor="director-style">风格</label>
-                <ChoiceSelect
-                  disabled={disabled}
-                  id="director-style"
-                  value={draft.style}
-                  onChange={(style) => setDraft({ ...draft, style })}
-                  label="影片风格"
-                  items={styleChoices.map((s) => ({
-                    value: s.id,
-                    label: s.name,
-                  }))}
-                />
-              </div>
-              {draft.scene !== 'commerce' && (
-                <div className="creative-setting-row">
-                  <label htmlFor="wardrobe-mode">造型</label>
-                  <ChoiceSelect
-                    disabled={disabled}
-                    id="wardrobe-mode"
-                    value={draft.wardrobeMode}
-                    onChange={(wardrobeMode) =>
-                      setDraft({ ...draft, wardrobeMode })
-                    }
-                    label="造型变化"
-                    items={[
-                      { value: 'auto', label: '导演自动安排' },
-                      { value: 'fixed', label: '全片固定一套' },
-                      { value: 'custom', label: '自定义造型' },
-                    ]}
-                  />
-                </div>
-              )}
-              {draft.scene !== 'commerce' &&
-                draft.wardrobeMode === 'custom' && (
-                  <div className="creative-field">
-                    <label htmlFor="wardrobe-prompt">
-                      造型顺序 <span className="creative-optional">必填</span>
-                    </label>
-                    <textarea
-                      id="wardrobe-prompt"
-                      rows={3}
-                      maxLength={1500}
-                      value={draft.wardrobePrompt}
-                      onChange={(e) =>
-                        setDraft({ ...draft, wardrobePrompt: e.target.value })
-                      }
-                      placeholder="例如：日常装 → 中式礼服 → 婚纱西装。"
+                <fieldset className="creative-setting-group">
+                  <legend>导演偏好</legend>
+                  <div className="creative-setting-row">
+                    <label htmlFor="project-occasion">用途</label>
+                    <ChoiceSelect
+                      disabled={disabled}
+                      id="project-occasion"
+                      value={draft.occasion}
+                      onChange={(occasion) => setDraft({ ...draft, occasion })}
+                      label="影片用途"
+                      items={Object.entries(sceneOccasions(draft.scene)).map(
+                        ([value, label]) => ({ value, label }),
+                      )}
                     />
                   </div>
-                )}
-            </fieldset>
-
+                  <div className="creative-setting-row">
+                    <label htmlFor="director-style">风格</label>
+                    <ChoiceSelect
+                      disabled={disabled}
+                      id="director-style"
+                      value={draft.style}
+                      onChange={(style) => setDraft({ ...draft, style })}
+                      label="影片风格"
+                      items={styleChoices.map((s) => ({
+                        value: s.id,
+                        label: s.name,
+                      }))}
+                    />
+                  </div>
+                  {draft.scene !== 'commerce' && (
+                    <div className="creative-setting-row">
+                      <label htmlFor="wardrobe-mode">造型</label>
+                      <ChoiceSelect
+                        disabled={disabled}
+                        id="wardrobe-mode"
+                        value={draft.wardrobeMode}
+                        onChange={(wardrobeMode) =>
+                          setDraft({ ...draft, wardrobeMode })
+                        }
+                        label="造型变化"
+                        items={[
+                          { value: 'auto', label: '导演自动安排' },
+                          { value: 'fixed', label: '全片固定一套' },
+                          { value: 'custom', label: '自定义造型' },
+                        ]}
+                      />
+                    </div>
+                  )}
+                  {draft.scene !== 'commerce' &&
+                    draft.wardrobeMode === 'custom' && (
+                      <div className="creative-field">
+                        <label htmlFor="wardrobe-prompt">
+                          造型顺序{' '}
+                          <span className="creative-optional">必填</span>
+                        </label>
+                        <textarea
+                          id="wardrobe-prompt"
+                          rows={3}
+                          maxLength={1500}
+                          value={draft.wardrobePrompt}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              wardrobePrompt: e.target.value,
+                            })
+                          }
+                          placeholder="例如：日常装 → 中式礼服 → 婚纱西装。"
+                        />
+                      </div>
+                    )}
+                </fieldset>
+              </>
+            )}
             <fieldset className="creative-setting-group">
               <legend>名称与片尾</legend>
               <div className="creative-field">

@@ -136,7 +136,9 @@ func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 	a.cfgMu.RLock()
 	apiKey := a.cfg.APIKey
 	a.cfgMu.RUnlock()
-	if apiKey == "" && mode != "render" {
+	current := a.store.Get(id)
+	localTemplatePlan := mode == "plan" && current != nil && current.CreationMode == "template"
+	if apiKey == "" && mode != "render" && !localTemplatePlan {
 		return errors.New("请先配置创作 API Key")
 	}
 	a.mu.Lock()
@@ -147,6 +149,9 @@ func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 	p := a.store.Get(id)
 	if p == nil {
 		return errors.New("项目不存在")
+	}
+	if err := validateTemplateProject(p); err != nil {
+		return err
 	}
 	if err := validateCommerceAction(p, mode); err != nil {
 		return err
@@ -290,7 +295,7 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 		}); err != nil {
 			return err
 		}
-		if p.Treatment == nil && sceneID(p) != "commerce" {
+		if p.CreationMode != "template" && p.Treatment == nil && sceneID(p) != "commerce" {
 			_ = a.store.Update(id, func(q *Project) error {
 				if sceneID(q) == "commerce" {
 					event(q, "导演正在理解商品资料，规划广告结构与素材职责")
@@ -316,7 +321,14 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 			}
 			p = a.store.Get(id)
 		}
-		synopsis, shots, err := a.provider.Plan(ctx, p)
+		var synopsis string
+		var shots []Shot
+		var err error
+		if p.CreationMode == "template" {
+			synopsis, shots, err = templatePlan(p)
+		} else {
+			synopsis, shots, err = a.provider.Plan(ctx, p)
+		}
 		if err != nil {
 			return fmt.Errorf("分镜编排未完成：%w", err)
 		}
@@ -337,6 +349,10 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 			q.LLMModel = a.cfg.LLMModel
 			q.VideoModel = a.cfg.VideoModel
 			q.PromptPolicy = advertisingVersion(q)
+			if q.CreationMode == "template" {
+				q.GenerationMode = "template-fixed"
+				q.PromptPolicy = q.TemplateID + ":" + q.TemplateVersion
+			}
 			if err := layout(q); err != nil {
 				return err
 			}
@@ -344,6 +360,8 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 			q.Progress = 16
 			if isDirectCommerce(q) {
 				event(q, "v3 整条广告指令已就绪：一次直出15秒，保留原生声音")
+			} else if q.CreationMode == "template" {
+				event(q, fmt.Sprintf("模板已载入：%d 个固定镜头，等待上传素材或生成", len(shots)))
 			} else {
 				event(q, fmt.Sprintf("星网导演已完成 %d 个镜头与转场编排", len(shots)))
 			}
@@ -613,7 +631,9 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 	if mediaErr == nil {
 		if isDirectCommerce(p) {
 			mediaErr = validateDirectMedia(p, info)
-		} else if info.Duration+0.08 < s.EditSeconds+0.25 {
+		} else if p.CreationMode == "template" && info.Duration+0.08 < s.EditSeconds {
+			mediaErr = errors.New("模板片段画面时长不足")
+		} else if p.CreationMode != "template" && info.Duration+0.08 < s.EditSeconds+0.25 {
 			mediaErr = errors.New("生成片段时长不足")
 		}
 	}

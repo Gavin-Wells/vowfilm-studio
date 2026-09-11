@@ -33,6 +33,9 @@ export type Asset = {
   providerAssetId?: string;
 };
 export type Project = {
+  creationMode?: string;
+  templateId?: string;
+  templateVersion?: string;
   scene?: string;
   ownerId?: string;
   autoTitle?: boolean;

@@ -162,6 +162,8 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var p Project
 	var in struct {
+		CreationMode   string `json:"creationMode"`
+		TemplateID     string `json:"templateId"`
 		Scene          string `json:"scene"`
 		Title          string `json:"title"`
 		Occasion       string `json:"occasion"`
@@ -179,6 +181,8 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Scene = in.Scene
+	p.CreationMode = in.CreationMode
+	p.TemplateID = in.TemplateID
 	p.OwnerID = currentUser(r).ID
 	p.Title = strings.TrimSpace(in.Title)
 	p.Brief = in.Brief
@@ -232,6 +236,8 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Method == "PATCH" {
 			var in struct {
+				CreationMode   string `json:"creationMode"`
+				TemplateID     string `json:"templateId"`
 				Scene          string `json:"scene"`
 				Title          string `json:"title"`
 				Occasion       string `json:"occasion"`
@@ -253,6 +259,11 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 					return errors.New("请先暂停当前生成任务")
 				}
 				q.Scene = in.Scene
+				q.CreationMode = in.CreationMode
+				if q.TemplateID != in.TemplateID {
+					q.TemplateVersion = ""
+				}
+				q.TemplateID = in.TemplateID
 				q.Title = strings.TrimSpace(in.Title)
 				q.Brief = in.Brief
 				q.Duration = in.Duration

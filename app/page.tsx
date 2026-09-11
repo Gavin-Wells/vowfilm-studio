@@ -41,6 +41,7 @@ import { DirectorSettings } from '@/components/director-settings';
 import { ChoiceSelect } from '@/components/choice-select';
 import { api } from '@/lib/api';
 import { TaskQuote } from '@/components/task-quote';
+import { filmTemplates } from '@/lib/templates';
 import { useAccount } from '@/components/account-provider';
 import type { Quote } from '@/lib/platform';
 import {
@@ -580,7 +581,12 @@ export default function Studio() {
                       label: scene.name,
                     }))}
                     disabled={
-                      !project || !canWrite || offline || running || busy
+                      !project ||
+                      !canWrite ||
+                      offline ||
+                      running ||
+                      busy ||
+                      draft.creationMode === 'template'
                     }
                   />
                   {project && draft.scene !== (project.scene || 'wedding') && (
@@ -589,6 +595,11 @@ export default function Studio() {
                 </div>
                 <h1>{project?.title || '开启你的第一部影片'}</h1>
                 <div className="project-meta">
+                  <span className="creation-mode-badge">
+                    {project?.creationMode === 'template'
+                      ? `模板 · ${filmTemplates.find((t) => t.id === project.templateId)?.name || '婚庆影片'}`
+                      : 'Agent 自由创作'}
+                  </span>
                   <span>{styles[project?.style || 'garden']}</span>
                   <b>·</b>
                   <span>{clock(project?.duration || 60)}</span>
@@ -885,7 +896,9 @@ export default function Studio() {
                     }
                   >
                     <RefreshCw size={14} />
-                    重新编排
+                    {project?.creationMode === 'template'
+                      ? '重新载入模板'
+                      : '重新编排'}
                   </button>
                 )}
               </div>
@@ -1127,14 +1140,18 @@ export default function Studio() {
                     <Empty>
                       <WandSparkles size={28} />
                       <p>
-                        {project?.scene === 'commerce'
-                          ? '先写一条完整的15秒广告指令'
-                          : '先把故事和造型排成一部影片'}
+                        {project?.creationMode === 'template'
+                          ? '使用固定模板结构'
+                          : project?.scene === 'commerce'
+                            ? '先写一条完整的15秒广告指令'
+                            : '先把故事和造型排成一部影片'}
                       </p>
                       <span>
-                        {project?.scene === 'commerce'
-                          ? '编排后可查看素材职责、完整时间轴、动作和台词，再提交一次视频生成。'
-                          : '编排后可查看三至四章叙事、每章造型、换装衔接与 Prompt 的采纳情况。'}
+                        {project?.creationMode === 'template'
+                          ? '六幕十二镜头，按同一结构制作；可在分镜脚本中查看与调整局部画面要求。'
+                          : project?.scene === 'commerce'
+                            ? '编排后可查看素材职责、完整时间轴、动作和台词，再提交一次视频生成。'
+                            : '编排后可查看三至四章叙事、每章造型、换装衔接与 Prompt 的采纳情况。'}
                       </span>
                       <button
                         className="primary-button"
@@ -1145,7 +1162,9 @@ export default function Studio() {
                           project && void action(`projects/${project.id}/plan`)
                         }
                       >
-                        生成导演方案与分镜
+                        {project?.creationMode === 'template'
+                          ? '载入模板分镜'
+                          : '生成导演方案与分镜'}
                       </button>
                     </Empty>
                   )}

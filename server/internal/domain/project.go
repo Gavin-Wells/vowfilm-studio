@@ -50,6 +50,9 @@ type MusicSection struct {
 }
 type Project struct {
 	OwnerID          string         `json:"ownerId"`
+	CreationMode     string         `json:"creationMode,omitempty"`
+	TemplateID       string         `json:"templateId,omitempty"`
+	TemplateVersion  string         `json:"templateVersion,omitempty"`
 	Scene            string         `json:"scene"`
 	ID               string         `json:"id"`
 	Title            string         `json:"title"`

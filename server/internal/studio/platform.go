@@ -58,6 +58,9 @@ func (a *App) billingHTTP(w http.ResponseWriter, r *http.Request) {
 	fail(w, 404, errors.New("计费接口不存在"))
 }
 func (a *App) quote(uid string, p *Project, action, shotID string) (*platform.Quote, error) {
+	if err := validateTemplateProject(p); err != nil {
+		return nil, err
+	}
 	if err := validateCommerceAction(p, action); err != nil {
 		return nil, err
 	}
@@ -70,6 +73,9 @@ func (a *App) quote(uid string, p *Project, action, shotID string) (*platform.Qu
 		return nil, err
 	}
 	seconds, shots := int64(p.Duration), int64(len(p.Shots))
+	if p.CreationMode == "template" && action == "plan" {
+		shots = int64(shotCount(p))
+	}
 	if sceneID(p) == "commerce" && action == "plan" {
 		shots = 1
 	}

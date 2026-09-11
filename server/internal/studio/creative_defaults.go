@@ -3,14 +3,22 @@ package studio
 import (
 	"strings"
 	"unicode"
+	"vowfilm/server/internal/templates"
 )
 
 // Defaults apply only to omitted values at the input boundary. Explicit settings
 // still pass through validation; neither creation nor naming calls a paid model.
 func applyProjectDefaults(p *Project) {
+	if p.CreationMode == "" {
+		p.CreationMode = "agent"
+	}
+	if p.CreationMode == "agent" {
+		p.TemplateVersion = ""
+	}
 	if p.Scene == "" {
 		p.Scene = "wedding"
 	}
+	templates.Apply(p)
 	duration, style, ratio := 60, "joyful", "16:9"
 	switch p.Scene {
 	case "family":

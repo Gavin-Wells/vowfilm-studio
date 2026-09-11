@@ -139,6 +139,9 @@ func event(p *Project, msg string) {
 	}
 }
 func validateProject(p *Project) error {
+	if err := validateTemplateProject(p); err != nil {
+		return err
+	}
 	if len([]rune(p.Title)) < 1 || len([]rune(p.Title)) > 80 {
 		return errors.New("片名需为 1–80 个字符")
 	}
@@ -185,6 +188,19 @@ func layout(p *Project) error {
 		return nil
 	}
 	overlap := 0
+	if p.CreationMode == "template" {
+		if p.Duration*24%n != 0 {
+			return errors.New("模板时长不能平均分配到固定镜头")
+		}
+		frames := p.Duration * 24 / n
+		for i := range p.Shots {
+			s := &p.Shots[i]
+			s.EditFrames, s.EditSeconds, s.TimelineStart = frames, float64(frames)/24, float64(i*frames)/24
+			s.Duration = int(math.Ceil(s.EditSeconds))
+			s.Transition = "cut"
+		}
+		return nil
+	}
 	for i := 0; i < n-1; i++ {
 		overlap += overlapFrames(p.Shots[i].Transition)
 	}

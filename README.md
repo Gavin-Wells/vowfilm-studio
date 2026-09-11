@@ -128,3 +128,5 @@ go test -race ./...
 生产部署可用 systemd 或进程管理器分别常驻 Go 与网页服务；需要 HTTPS 素材地址时配置 `PUBLIC_MEDIA_BASE_URL` 并备份 `data/`。
 
 电商广告模板来源、阶段契约与真实测试说明见 [广告提示词接入](docs/advertising-prompts.md)。创作设置可直接在工作台的「导演手记」编辑与保存。
+
+婚庆模板与 Agent 的边界、参考片结构和固定镜头规则见 [模板与 Agent](docs/template-agents.md)。
