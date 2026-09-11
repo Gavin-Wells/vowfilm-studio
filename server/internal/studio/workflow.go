@@ -402,30 +402,59 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 		}
 		var wg sync.WaitGroup
 		errs := make(chan error, len(p.Shots))
-		for _, s := range p.Shots {
-			if mode == "shot" && len(selectedShots) > 0 && s.ID != selectedShots[0] {
-				continue
-			}
-			if s.Status == "completed" && s.VideoFile != "" {
-				continue
-			}
-			sid := s.ID
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		if p.CreationMode == "template" {
+			// Template shots are submitted in order so a completed thumbnail can
+			// become an identity anchor for the next shot. Parallel submission
+			// makes every model call invent a fresh face, which is especially
+			// visible in a multi-era wedding template.
+			for _, s := range p.Shots {
+				if mode == "shot" && len(selectedShots) > 0 && s.ID != selectedShots[0] {
+					continue
+				}
+				if s.Status == "completed" && s.VideoFile != "" {
+					continue
+				}
+				shotRefs, shotGuide, refErr := a.templateIdentityReferences(a.store.Get(id), refs, guide)
+				if refErr != nil {
+					return refErr
+				}
 				select {
 				case a.slots <- struct{}{}:
-					defer func() { <-a.slots }()
 				case <-ctx.Done():
-					errs <- ctx.Err()
-					return
+					return ctx.Err()
 				}
-				if err := a.generateShot(ctx, id, sid, refs, guide); err != nil {
-					errs <- err
+				err := a.generateShot(ctx, id, s.ID, shotRefs, shotGuide)
+				<-a.slots
+				if err != nil {
+					return err
 				}
-			}()
+			}
+		} else {
+			for _, s := range p.Shots {
+				if mode == "shot" && len(selectedShots) > 0 && s.ID != selectedShots[0] {
+					continue
+				}
+				if s.Status == "completed" && s.VideoFile != "" {
+					continue
+				}
+				sid := s.ID
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					select {
+					case a.slots <- struct{}{}:
+						defer func() { <-a.slots }()
+					case <-ctx.Done():
+						errs <- ctx.Err()
+						return
+					}
+					if err := a.generateShot(ctx, id, sid, refs, guide); err != nil {
+						errs <- err
+					}
+				}()
+			}
+			wg.Wait()
 		}
-		wg.Wait()
 		close(errs)
 		var all []string
 		for err := range errs {
@@ -473,6 +502,7 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 		return nil
 	})
 }
+
 func (a *App) importProbe(id string) {
 	p := a.store.Get(id)
 	if id != "film_demo" || len(p.Shots) == 0 || p.Shots[0].TaskID != "" || p.Shots[0].VideoFile != "" || p.GeneratedSeconds > 0 {
@@ -506,7 +536,7 @@ func (a *App) importProbe(id string) {
 }
 func (a *App) references(p *Project) ([]map[string]any, string, error) {
 	refs := []map[string]any{}
-	guides := []string{}
+	entries := referenceEntries(p)
 	for _, asset := range p.Assets {
 		if asset.Role == "music" {
 			continue
@@ -531,10 +561,9 @@ func (a *App) references(p *Project) ([]map[string]any, string, error) {
 			u = "data:" + asset.MIME + ";base64," + base64.StdEncoding.EncodeToString(raw)
 		}
 		refs = append(refs, map[string]any{"type": "image_url", "image_url": map[string]string{"url": u}, "role": "reference_image"})
-		role := map[string]string{"bride": "新娘的人物身份和面貌；服装按本镜造型要求", "groom": "新郎的人物身份和面貌；服装按本镜造型要求", "person": "指定人物身份和面貌，服装按本镜要求", "product": "商品外观、包装、颜色和比例，不添加未知功效", "reference": "环境和视觉风格，不替换人物身份"}[asset.Role]
-		guides = append(guides, fmt.Sprintf("图片%d参考%s。", len(refs), role))
+
 	}
-	return refs, strings.Join(guides, ""), nil
+	return refs, referenceBindingText(entries), nil
 }
 func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[string]any, guide string) error {
 	p := a.store.Get(id)
@@ -548,6 +577,7 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 		return errors.New("镜头不存在")
 	}
 	if s.TaskID == "" {
+		s.Prompt = withReferenceBindings(s.Prompt, guide)
 		err := a.store.Update(id, func(q *Project) error {
 			for i := range q.Shots {
 				if q.Shots[i].ID == sid {
@@ -560,6 +590,7 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 						v.Reserved = true
 					}
 					v.Status = "submitting"
+					v.Prompt = s.Prompt
 					event(q, "提交镜头："+v.Title)
 					return nil
 				}
@@ -569,7 +600,6 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 		if err != nil {
 			return err
 		}
-		s.Prompt = guide + s.Prompt
 		task, err := a.provider.Submit(ctx, p, s, refs)
 		if err != nil {
 			return fmt.Errorf("%s 提交未完成（再次继续使用同一幂等键）：%w", s.Title, err)

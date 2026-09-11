@@ -61,15 +61,21 @@ func templatePlan(p *Project) (string, []Shot, error) {
 		if p.TemplateVersion == "3" {
 			energy = "高能量婚庆预告片，144 BPM 强拍剪辑；开头第一拍就进入动作，人物必须主动走、转、拉、接或环绕，不站定摆拍；每个镜头至少有一次明确位移，结尾在强拍动作点交给下一镜。"
 		}
-		prompt := strings.Join([]string{
+		body := strings.Join([]string{
 			"婚礼影片模板《" + t.Name + "》；", chapter.Title + "，" + chapter.Setting + "。",
+			fmt.Sprintf("【本段提示词时长】%.2f 秒；仅生成本段指定内容，不跨段重置人物或场景。", float64(item.EditFrames)/24),
 			"本章造型：" + chapter.Look, item.Action,
 			energy,
+			"【环境与视觉分析】场景、时辰、天气、色调和光线以本章设定为准；空间连续时不得擅自替换建筑、道路、水面或主要道具。",
+			"【拍摄连续性】同一对主角的脸部、发型、肤色、年龄、体态和关系全片一致；本镜从入场动作开始，沿指定机位与方向连续拍摄，动作和道具在结尾交给下一镜。",
+			"【道具动作账本】本镜出现的信物、扇子、花束、酒杯或其他道具保持数量、手位、方向和外观，不凭空出现、消失或换位。",
+			"【禁项】禁止换脸、串人、额外人物、人体变形、衣服在镜头内液化变化、字幕、文字、数字、Logo、水印和背景音乐。",
 			"人物面貌与身份全片一致，同章服装和配饰固定。造型只在两个章节的独立镜头之间剪切更换，当前镜头内禁止换装、变脸或人体变形。单一连续镜头，无字幕、无文字、无音乐。",
 			"面貌以提供的人物素材为准，无人物参考时采用统一的两位虚构成年新人；本片跨时代情节均为艺术化表达，不声称是真实人生经历。运镜：" + item.Camera + "。画面必须从动作开始，保持连续可见的身体或摄影机运动，结尾动作停稳；避免静止摆拍、空镜和全程慢推。",
 			"只使用用户提供的真实人物与故事资料，不补写姓名、日期或经历。资料仅用于人物细节，不改变此镜固定动作：" + p.Brief,
 			"局部拍摄要求（不改变模板的场景、镜头顺序、服装与时长）：" + p.CustomPrompt,
 		}, "")
+		prompt := withReferenceBindings(body, referenceBindingText(referenceEntries(p)))
 		shots = append(shots, Shot{ID: fmt.Sprintf("S%02d", i+1), Title: item.Title, Chapter: chapter.Title, Description: item.Action, Camera: item.Camera, Prompt: prompt, Caption: item.Caption, Transition: transition, EntryAction: entryAction, ExitAction: exitAction, TransitionReason: reason, EditFrames: item.EditFrames, Status: "pending", Attempt: 1, ActID: fmt.Sprintf("A%d", item.Chapter+1)})
 	}
 	return "以同一对主角串起古风初见、荷塘同游、中式誓约、复古重逢、现代相伴与当代婚礼；六幕十二镜头，分章换装，片尾留画三秒交还现场。跨时代情节为艺术化表达。", shots, nil

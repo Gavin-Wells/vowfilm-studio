@@ -72,6 +72,7 @@ func (p *Provider) request(ctx context.Context, method, path string, body any, i
 const directorPrompt = `你是婚礼现场影片的分镜导演，只返回JSON：synopsis（100字内）、shots（指定数量镜头）。
 每镜必须有title、chapter、description、camera、caption（15字以内）、transition（cut/match/dipwhite/dissolve）、entryAction、exitAction、transitionReason、prompt（80–160字中文单镜头指令）。
 严格执行输入的treatment与shot_assignments：每镜所在章节、场景、造型已经明确分配，不能自行替换；同章衣服保持，章边允许按方案换装，人物面貌与身份不变。custom_prompt中的具体内容高于style_defaults；用户禁止的群像、道具、场景或镜头不能因默认风格再出现。实现mustHave并避开avoid，不能把用户Prompt仅用于摘要。
+prompt必须写成可直接提交视频模型的完整段落，并按以下顺序包含：【本段提示词时长】、【环境与视觉分析】、【拍摄要求】、【道具动作账本】、【禁项】、【参考素材】。引用素材时只使用输入assets给出的固定编号（@图片N或兼容的<图片N>），不得凭文件名猜测图片内容，不得创建@音频N。
 每镜一个主要动作和一种运镜，相邻镜头有动作、方向、视线、道具或构图承接。章边换装用遮挡/同向旋转/道具特写，两段分别生成再切接，禁止衣服和人体液化变形。结尾镜头留出稳定亮相，适合大屏片尾留场。至少80%为cut/match，至多两处有理由的叠化或闪白，不得连续叠化。人物要有互动、表情和关系推进，远中近景交替，不全程慢推、空镜和背影。慢动作仅在用户要求或少量强调时使用。
 只使用用户提供的真实经历、姓名日期，不编造事实；资料不足用象征性情节。所有文字后期添加，视频prompt必须注明单一连续镜头、无字幕无文字无音乐。不要输出API参数、URL或文件路径。`
 
