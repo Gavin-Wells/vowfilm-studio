@@ -158,8 +158,11 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 		} else {
 			fade := float64(overlapFrames(p.Shots[i-1].Transition)) / 24
 			effect := "fade"
-			if p.Shots[i-1].Transition == "dipwhite" {
+			switch p.Shots[i-1].Transition {
+			case "dipwhite":
 				effect = "fadewhite"
+			case "wipeleft", "slideleft":
+				effect = p.Shots[i-1].Transition
 			}
 			filters = append(filters, fmt.Sprintf("[%s][v%d]xfade=transition=%s:duration=%.6f:offset=%.6f,settb=AVTB[%s]", label, i, effect, fade, cursor-fade, out))
 			cursor += p.Shots[i].EditSeconds - fade
@@ -180,7 +183,13 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 			break
 		}
 	}
-	if !custom && rhythmicStyle(p.Style) {
+	if !custom && p.CreationMode == "template" {
+		// Fixed templates need a dependable musical bed even when no public
+		// media URL is configured for the optional AI music service.
+		if err := composeTemplateMusic(music, p.Duration, targetBPM(p)); err != nil {
+			return "", err
+		}
+	} else if !custom && rhythmicStyle(p.Style) {
 		generated, err := a.generatedSoundtrack(ctx, p)
 		if err != nil {
 			return "", err
@@ -399,6 +408,76 @@ func composeMusic(path string, seconds int) error {
 		fade := math.Min(1, t/2) * math.Min(1, (float64(seconds)-t)/4)
 		v = math.Tanh(v*1.15) * swell * fade
 		binary.LittleEndian.PutUint16(data[44+i*2:], uint16(int16(v*27000)))
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+func composeTemplateMusic(path string, seconds int, requestedBPM ...int) error {
+	const rate = 24000
+	count := rate * seconds
+	data := make([]byte, 44+count*4)
+	copy(data, "RIFF")
+	binary.LittleEndian.PutUint32(data[4:], uint32(len(data)-8))
+	copy(data[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(data[16:], 16)
+	binary.LittleEndian.PutUint16(data[20:], 1)
+	binary.LittleEndian.PutUint16(data[22:], 2)
+	binary.LittleEndian.PutUint32(data[24:], rate)
+	binary.LittleEndian.PutUint32(data[28:], rate*4)
+	binary.LittleEndian.PutUint16(data[32:], 4)
+	binary.LittleEndian.PutUint16(data[34:], 16)
+	copy(data[36:], "data")
+	binary.LittleEndian.PutUint32(data[40:], uint32(count*4))
+
+	// A 96 BPM pulse keeps the romantic template moving without overpowering
+	// dialogue or the final three-second hold.
+	bpm := 96.0
+	if len(requestedBPM) > 0 && requestedBPM[0] >= 72 && requestedBPM[0] <= 144 {
+		bpm = float64(requestedBPM[0])
+	}
+	beat := 60.0 / bpm
+	chords := [][3]float64{{261.63, 329.63, 392.00}, {196.00, 246.94, 293.66}, {220.00, 261.63, 329.63}, {174.61, 220.00, 261.63}}
+	melody := []float64{523.25, 587.33, 659.25, 587.33, 523.25, 493.88, 523.25, 587.33, 659.25, 698.46, 659.25, 587.33}
+	for i := 0; i < count; i++ {
+		t := float64(i) / rate
+		phrase := int(t/4) % len(chords)
+		phraseAge := math.Mod(t, 4)
+		breath := .72 + .28*math.Sin(math.Pi*phraseAge/4)
+		chord := chords[phrase]
+		pad := (.18*math.Sin(2*math.Pi*chord[0]*t) + .11*math.Sin(2*math.Pi*chord[1]*t+.2) + .08*math.Sin(2*math.Pi*chord[2]*t-.1) + .035*math.Sin(4*math.Pi*chord[0]*t+.4)) * breath
+
+		step := int(t / (beat / 2))
+		note := melody[(step+phrase*2)%len(melody)]
+		noteAge := math.Mod(t, beat/2)
+		decay := math.Exp(-noteAge * 4.3)
+		lead := (.13*math.Sin(2*math.Pi*note*t) + .04*math.Sin(4*math.Pi*note*t)) * decay
+
+		beatPos := math.Mod(t, beat)
+		beatIndex := int(t / beat)
+		kick := 0.0
+		if beatIndex%4 == 0 {
+			kick = .20 * math.Sin(2*math.Pi*(95-35*math.Min(beatPos*8, 1))*beatPos) * math.Exp(-beatPos*18)
+		}
+		snare := 0.0
+		if beatIndex%4 == 1 || beatIndex%4 == 3 {
+			snare = .035 * (math.Sin(2*math.Pi*1733*t) + .5*math.Sin(2*math.Pi*2911*t)) * math.Exp(-beatPos*30)
+		}
+		hat := .012 * math.Sin(2*math.Pi*5000*t) * math.Exp(-math.Mod(t, beat/2)*55)
+		energy := 1.0
+		if t < 8 {
+			energy = .65 + .35*t/8
+		} else if t >= 24 && t < 40 {
+			energy = .78
+		} else if t >= 40 && t < 52 {
+			energy = 1.15
+		} else if t >= 52 {
+			energy = math.Max(.2, 1.15-(t-52)/8)
+		}
+		fade := math.Min(1, t/2) * math.Min(1, (float64(seconds)-t)/4)
+		left := math.Tanh((pad+lead+kick+snare+hat)*energy*1.15) * fade
+		right := math.Tanh((.92*pad+1.04*lead+kick+.9*snare+.8*hat)*energy*1.15) * fade
+		binary.LittleEndian.PutUint16(data[44+i*4:], uint16(int16(left*28000)))
+		binary.LittleEndian.PutUint16(data[46+i*4:], uint16(int16(right*28000)))
 	}
 	return os.WriteFile(path, data, 0600)
 }

@@ -3,6 +3,7 @@ package studio
 import (
 	"math"
 	"strings"
+	"vowfilm/server/internal/templates"
 )
 
 type StyleProfile struct {
@@ -55,6 +56,8 @@ func overlapFrames(transition string) int {
 		return 12
 	case "dipwhite":
 		return 3
+	case "wipeleft", "slideleft":
+		return 6
 	default:
 		return 0
 	}
@@ -94,6 +97,11 @@ func scoreSections(p *Project) []MusicSection {
 
 func profileForProject(p *Project) StyleProfile {
 	profile := profileFor(p.Style)
+	if p.CreationMode == "template" {
+		if t, ok := templates.FindVersion(p.TemplateID, p.TemplateVersion); ok && t.MusicDirection != "" {
+			profile.Music = t.MusicDirection
+		}
+	}
 	if sceneID(p) != "wedding" {
 		profile.Direction = profile.Description + "。镜头内容依照场景要求，不添加无关人物或婚礼情节；景别与运镜服务叙事，保持主体外观一致。"
 		profile.Music = strings.ReplaceAll(profile.Music, "wedding", "cinematic")

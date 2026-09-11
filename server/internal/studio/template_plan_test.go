@@ -3,9 +3,12 @@ package studio
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -44,7 +47,7 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 		return project
 	}
 	p := call("POST", "/api/projects", map[string]any{"creationMode": "template", "templateId": "wedding-timeless", "brief": "我们喜欢一起看展", "endingText": "余生，请多指教"}, 201)
-	if p.CreationMode != "template" || p.TemplateVersion != "1" || p.Duration != 60 || p.Ratio != "16:9" || p.GenerationBudget != 180 {
+	if p.CreationMode != "template" || p.TemplateVersion != "2" || p.Duration != 60 || p.Ratio != "16:9" || p.GenerationBudget != 180 {
 		t.Fatalf("template not saved: %+v", p)
 	}
 	if err := a.run(context.Background(), p.ID, "plan"); err != nil {
@@ -54,9 +57,24 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 	if upstreamCalls != 0 || len(planned.Shots) != 12 || planned.GenerationMode != "template-fixed" || planned.Status != "planned" {
 		t.Fatalf("wrong template flow: calls=%d project=%+v", upstreamCalls, planned)
 	}
+	frames := 0
+	transitions := map[string]bool{}
 	for i, shot := range planned.Shots {
-		if shot.Duration != 5 || shot.EditFrames != 120 || shot.TimelineStart != float64(i*5) || !strings.Contains(shot.Prompt, p.Brief) {
+		frames += shot.EditFrames
+		transitions[shot.Transition] = true
+		if i < len(planned.Shots)-1 {
+			frames -= overlapFrames(shot.Transition)
+		}
+		if shot.Duration*24 < shot.EditFrames || !strings.Contains(shot.Prompt, p.Brief) {
 			t.Fatalf("invalid shot %d: %+v", i, shot)
+		}
+	}
+	if frames != planned.Duration*24 {
+		t.Fatalf("template timeline is not exact: %d", frames)
+	}
+	for _, transition := range []string{"match", "dissolve", "dipwhite", "wipeleft", "slideleft"} {
+		if !transitions[transition] {
+			t.Fatalf("v2 template lost %s transition: %#v", transition, transitions)
 		}
 	}
 	if sourceTrimStart(planned, 0, 5) != 0 || endHold(planned) != 3 {
@@ -76,11 +94,11 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored[p.ID].TemplateID != p.TemplateID || stored[p.ID].TemplateVersion != "1" || len(stored[p.ID].Shots) != 12 {
+	if stored[p.ID].TemplateID != p.TemplateID || stored[p.ID].TemplateVersion != "2" || len(stored[p.ID].Shots) != 12 {
 		t.Fatal("template snapshot was not persisted")
 	}
 	updated := call("PATCH", "/api/projects/"+p.ID, map[string]any{"creationMode": "template", "templateId": "wedding-timeless", "brief": "新的真实资料", "duration": 120, "scene": "commerce"}, 200)
-	if updated.Duration != 60 || updated.Scene != "wedding" || len(updated.Shots) != 0 || updated.TemplateVersion != "1" {
+	if updated.Duration != 60 || updated.Scene != "wedding" || len(updated.Shots) != 0 || updated.TemplateVersion != "2" {
 		t.Fatal("template constraints or plan invalidation lost")
 	}
 	call("POST", "/api/projects", map[string]any{"creationMode": "template", "templateId": "missing"}, 400)
@@ -89,5 +107,52 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 	legacy := call("POST", "/api/projects", map[string]any{"scene": "family"}, 201)
 	if legacy.CreationMode != "agent" || legacy.TemplateID != "" || legacy.Duration != 120 {
 		t.Fatal("legacy Agent defaults changed")
+	}
+}
+
+func TestFixedTemplateKeepsTransitionRhythmAndMusicFallback(t *testing.T) {
+	p := &Project{CreationMode: "template", TemplateID: "wedding-timeless", TemplateVersion: "1", Scene: "wedding", Duration: 60, Ratio: "16:9", Style: "romantic", Occasion: "opening", WardrobeMode: "auto", Brief: "两位虚构成年新人"}
+	if _, shots, err := templatePlan(p); err != nil {
+		t.Fatal(err)
+	} else {
+		p.Shots = shots
+		// Version 1 stays reproducible: it has the original all-cut timing.
+		for _, s := range shots {
+			if s.Transition != "cut" {
+				t.Fatal("archived template v1 changed transition behavior")
+			}
+		}
+		// New template versions opt into the cinematic transition rhythm.
+		newer := &Project{TemplateVersion: "2"}
+		p.Shots = make([]Shot, 12)
+		for i := range p.Shots {
+			p.Shots[i].Transition = templateTransition(newer, i)
+		}
+		seen := map[string]bool{}
+		for _, s := range p.Shots {
+			seen[s.Transition] = true
+		}
+		if !seen["match"] || !seen["dissolve"] || !seen["dipwhite"] {
+			t.Fatalf("template transition rhythm too flat: %#v", seen)
+		}
+		if err := layout(p); err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range p.Shots {
+			if s.Transition == "" {
+				t.Fatal("template transition was erased during layout")
+			}
+		}
+	}
+	path := filepath.Join(t.TempDir(), "template-score.wav")
+	if err := composeTemplateMusic(path, 60); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 44 || string(raw[:4]) != "RIFF" || binary.LittleEndian.Uint16(raw[22:]) != 2 || binary.LittleEndian.Uint32(raw[40:]) == 0 {
+		t.Fatal("template fallback score is not stereo PCM audio")
 	}
 }

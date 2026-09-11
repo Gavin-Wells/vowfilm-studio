@@ -59,6 +59,11 @@ func occasion(p *Project) string {
 	return p.Occasion
 }
 func targetBPM(p *Project) int {
+	if p.CreationMode == "template" {
+		if t, ok := templates.FindVersion(p.TemplateID, p.TemplateVersion); ok && t.BPM >= 60 && t.BPM <= 160 {
+			return t.BPM
+		}
+	}
 	if p.Treatment != nil && p.Treatment.BPM >= 60 && p.Treatment.BPM <= 160 {
 		return p.Treatment.BPM
 	}
@@ -66,7 +71,7 @@ func targetBPM(p *Project) int {
 }
 func shotCount(p *Project) int {
 	if p.CreationMode == "template" {
-		if t, ok := templates.Find(p.TemplateID); ok {
+		if t, ok := templates.FindVersion(p.TemplateID, p.TemplateVersion); ok {
 			return len(t.Shots)
 		}
 	}

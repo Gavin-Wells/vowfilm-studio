@@ -192,12 +192,44 @@ func layout(p *Project) error {
 		if p.Duration*24%n != 0 {
 			return errors.New("模板时长不能平均分配到固定镜头")
 		}
-		frames := p.Duration * 24 / n
+		target := p.Duration * 24
+		scheduled := true
+		scheduledTotal := 0
+		for _, s := range p.Shots {
+			if s.EditFrames <= 0 {
+				scheduled = false
+				break
+			}
+			scheduledTotal += s.EditFrames
+		}
+		if scheduled && scheduledTotal != target {
+			return errors.New("模板镜头节奏总时长必须等于影片时长")
+		}
+		frames := target / n
+		cursor := 0
 		for i := range p.Shots {
 			s := &p.Shots[i]
-			s.EditFrames, s.EditSeconds, s.TimelineStart = frames, float64(frames)/24, float64(i*frames)/24
+			if scheduled {
+				frames = s.EditFrames
+				if i < n-1 {
+					frames += overlapFrames(s.Transition)
+				}
+				s.TimelineStart = float64(cursor) / 24
+			} else {
+				frames = target / n
+				s.TimelineStart = float64(i*frames) / 24
+			}
+			s.EditFrames, s.EditSeconds = frames, float64(frames)/24
 			s.Duration = int(math.Ceil(s.EditSeconds))
-			s.Transition = "cut"
+			if s.Transition == "" {
+				s.Transition = "cut"
+			}
+			if scheduled {
+				cursor += frames
+				if i < n-1 {
+					cursor -= overlapFrames(s.Transition)
+				}
+			}
 		}
 		return nil
 	}

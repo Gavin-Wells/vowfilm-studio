@@ -59,7 +59,9 @@ export function TemplateCard({
           ))}
         </div>
         <div className="template-card-actions">
-          <span className="fine-print">六幕故事 · 分章造型 · 12 镜头</span>
+          <span className="fine-print">
+            {template.bpm ? `${template.bpm} BPM · 动作转场 · ` : ''}六幕故事 · 分章造型 · 12 镜头
+          </span>
           <button
             type="button"
             className={selected ? 'secondary-button' : 'primary-button'}
