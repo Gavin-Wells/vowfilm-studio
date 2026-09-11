@@ -57,9 +57,14 @@ func templatePlan(p *Project) (string, []Shot, error) {
 		if reason == "" {
 			reason = templateTransitionReason(transition)
 		}
+		energy := ""
+		if p.TemplateVersion == "3" {
+			energy = "高能量婚庆预告片，144 BPM 强拍剪辑；开头第一拍就进入动作，人物必须主动走、转、拉、接或环绕，不站定摆拍；每个镜头至少有一次明确位移，结尾在强拍动作点交给下一镜。"
+		}
 		prompt := strings.Join([]string{
 			"婚礼影片模板《" + t.Name + "》；", chapter.Title + "，" + chapter.Setting + "。",
 			"本章造型：" + chapter.Look, item.Action,
+			energy,
 			"人物面貌与身份全片一致，同章服装和配饰固定。造型只在两个章节的独立镜头之间剪切更换，当前镜头内禁止换装、变脸或人体变形。单一连续镜头，无字幕、无文字、无音乐。",
 			"面貌以提供的人物素材为准，无人物参考时采用统一的两位虚构成年新人；本片跨时代情节均为艺术化表达，不声称是真实人生经历。运镜：" + item.Camera + "。画面必须从动作开始，保持连续可见的身体或摄影机运动，结尾动作停稳；避免静止摆拍、空镜和全程慢推。",
 			"只使用用户提供的真实人物与故事资料，不补写姓名、日期或经历。资料仅用于人物细节，不改变此镜固定动作：" + p.Brief,

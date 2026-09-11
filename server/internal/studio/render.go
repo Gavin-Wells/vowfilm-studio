@@ -412,7 +412,7 @@ func composeMusic(path string, seconds int) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-func composeTemplateMusic(path string, seconds int, requestedBPM ...int) error {
+func composeTemplateMusicLegacy(path string, seconds int, requestedBPM ...int) error {
 	const rate = 24000
 	count := rate * seconds
 	data := make([]byte, 44+count*4)
@@ -454,10 +454,7 @@ func composeTemplateMusic(path string, seconds int, requestedBPM ...int) error {
 
 		beatPos := math.Mod(t, beat)
 		beatIndex := int(t / beat)
-		kick := 0.0
-		if beatIndex%4 == 0 {
-			kick = .20 * math.Sin(2*math.Pi*(95-35*math.Min(beatPos*8, 1))*beatPos) * math.Exp(-beatPos*18)
-		}
+		kick := .20 * math.Sin(2*math.Pi*(95-35*math.Min(beatPos*8, 1))*beatPos) * math.Exp(-beatPos*18)
 		snare := 0.0
 		if beatIndex%4 == 1 || beatIndex%4 == 3 {
 			snare = .035 * (math.Sin(2*math.Pi*1733*t) + .5*math.Sin(2*math.Pi*2911*t)) * math.Exp(-beatPos*30)

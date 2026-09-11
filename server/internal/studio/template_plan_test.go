@@ -47,7 +47,7 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 		return project
 	}
 	p := call("POST", "/api/projects", map[string]any{"creationMode": "template", "templateId": "wedding-timeless", "brief": "我们喜欢一起看展", "endingText": "余生，请多指教"}, 201)
-	if p.CreationMode != "template" || p.TemplateVersion != "2" || p.Duration != 60 || p.Ratio != "16:9" || p.GenerationBudget != 180 {
+	if p.CreationMode != "template" || p.TemplateVersion != "3" || p.Duration != 60 || p.Ratio != "16:9" || p.GenerationBudget != 180 {
 		t.Fatalf("template not saved: %+v", p)
 	}
 	if err := a.run(context.Background(), p.ID, "plan"); err != nil {
@@ -74,7 +74,7 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 	}
 	for _, transition := range []string{"match", "dissolve", "dipwhite", "wipeleft", "slideleft"} {
 		if !transitions[transition] {
-			t.Fatalf("v2 template lost %s transition: %#v", transition, transitions)
+			t.Fatalf("v3 template lost %s transition: %#v", transition, transitions)
 		}
 	}
 	if sourceTrimStart(planned, 0, 5) != 0 || endHold(planned) != 3 {
@@ -94,11 +94,11 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored[p.ID].TemplateID != p.TemplateID || stored[p.ID].TemplateVersion != "2" || len(stored[p.ID].Shots) != 12 {
+	if stored[p.ID].TemplateID != p.TemplateID || stored[p.ID].TemplateVersion != "3" || len(stored[p.ID].Shots) != 12 {
 		t.Fatal("template snapshot was not persisted")
 	}
 	updated := call("PATCH", "/api/projects/"+p.ID, map[string]any{"creationMode": "template", "templateId": "wedding-timeless", "brief": "新的真实资料", "duration": 120, "scene": "commerce"}, 200)
-	if updated.Duration != 60 || updated.Scene != "wedding" || len(updated.Shots) != 0 || updated.TemplateVersion != "2" {
+	if updated.Duration != 60 || updated.Scene != "wedding" || len(updated.Shots) != 0 || updated.TemplateVersion != "3" {
 		t.Fatal("template constraints or plan invalidation lost")
 	}
 	call("POST", "/api/projects", map[string]any{"creationMode": "template", "templateId": "missing"}, 400)

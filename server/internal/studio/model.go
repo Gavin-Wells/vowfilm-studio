@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 	"vowfilm/server/internal/domain"
+	"vowfilm/server/internal/templates"
 )
 
 type Config struct {
@@ -189,47 +190,72 @@ func layout(p *Project) error {
 	}
 	overlap := 0
 	if p.CreationMode == "template" {
-		if p.Duration*24%n != 0 {
-			return errors.New("模板时长不能平均分配到固定镜头")
+		t, ok := templates.FindVersion(p.TemplateID, p.TemplateVersion)
+		if !ok {
+			return errors.New("模板不存在或已下架")
+		}
+		if t.Duration != p.Duration || len(t.Shots) != n {
+			return errors.New("模板镜头数量或时长与固定方案不一致")
 		}
 		target := p.Duration * 24
-		scheduled := true
-		scheduledTotal := 0
-		for _, s := range p.Shots {
-			if s.EditFrames <= 0 {
-				scheduled = false
-				break
+		// Catalog editFrames are the canonical net timeline. Re-read them on
+		// every layout pass so a plan->render retry never adds transition
+		// handles a second time. Archived v1 has no schedule and intentionally
+		// keeps its equal timing.
+		canonical := make([]int, n)
+		canonicalTotal := 0
+		hasSchedule := len(t.Shots) == n
+		for i := range t.Shots {
+			canonical[i] = t.Shots[i].EditFrames
+			if canonical[i] <= 0 {
+				hasSchedule = false
 			}
-			scheduledTotal += s.EditFrames
+			canonicalTotal += canonical[i]
 		}
-		if scheduled && scheduledTotal != target {
-			return errors.New("模板镜头节奏总时长必须等于影片时长")
+		if !hasSchedule || canonicalTotal != target {
+			if target%n != 0 {
+				return errors.New("模板时长不能平均分配到固定镜头")
+			}
+			for i := range canonical {
+				canonical[i] = target / n
+			}
 		}
-		frames := target / n
 		cursor := 0
 		for i := range p.Shots {
 			s := &p.Shots[i]
-			if scheduled {
-				frames = s.EditFrames
-				if i < n-1 {
-					frames += overlapFrames(s.Transition)
-				}
-				s.TimelineStart = float64(cursor) / 24
-			} else {
-				frames = target / n
-				s.TimelineStart = float64(i*frames) / 24
-			}
-			s.EditFrames, s.EditSeconds = frames, float64(frames)/24
-			s.Duration = int(math.Ceil(s.EditSeconds))
 			if s.Transition == "" {
 				s.Transition = "cut"
 			}
-			if scheduled {
-				cursor += frames
-				if i < n-1 {
-					cursor -= overlapFrames(s.Transition)
-				}
+			switch s.Transition {
+			case "cut", "match", "dissolve", "dipwhite", "wipeleft", "slideleft":
+			default:
+				return fmt.Errorf("模板镜头 %s 使用了不支持的转场 %q", s.ID, s.Transition)
 			}
+			netFrames := canonical[i]
+			frames := netFrames
+			if i < n-1 {
+				frames += overlapFrames(s.Transition)
+			}
+			s.TimelineStart = float64(cursor) / 24
+			s.EditFrames, s.EditSeconds = frames, float64(frames)/24
+			need := (frames + 18 + 23) / 24
+			if need < 4 {
+				need = 4
+			}
+			if need > 15 {
+				return fmt.Errorf("模板镜头 %s 超出模型时长限制", s.ID)
+			}
+			s.Duration = need
+			if i == n-1 && endHold(p)*24 >= float64(netFrames) {
+				return errors.New("模板片尾镜头不足以留画")
+			}
+			cursor += frames
+			if i < n-1 {
+				cursor -= overlapFrames(s.Transition)
+			}
+		}
+		if cursor != target {
+			return errors.New("模板时间线时长不匹配")
 		}
 		return nil
 	}
