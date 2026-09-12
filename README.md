@@ -2,7 +2,7 @@
 
 React + Go 多场景 AI 视频工作台：现场用途、自定义 Prompt、章节变装、风格选择、GPT‑6 导演与分镜、SD2 Mini 视频生成、动作衔接、按节拍剪辑、AI 配乐、局部重做与成片下载。
 
-默认 LLM：星网 `openai/gpt-6-astra`。默认视频模型：**SD2 Mini**，完整标识 `volcengine/doubao-seedance-2-0-mini-260615`。
+默认 LLM：星网 `openai/gpt-6-astra`。默认视频模型：**MiniMax H3**，完整标识 `starnet/minimax-h3`。
 
 ## 交付影片
 
@@ -57,7 +57,7 @@ MP4 属于生成产物，随交付 ZIP 和网站资源分发，不进入 Git 历
 | 旅行纪实 | 16 | 120 BPM | 连贯移动与旅途互动；原声民谣、拍手节奏 |
 | 时尚短片 | 18 | 120 BPM | 干净构图与利落切镜；Nu-disco、律动贝斯 |
 
-60 秒影片的配乐结构为：开场 0–8 秒、推进 8–24 秒、转折 24–40 秒、高潮 40–52 秒、收尾 52–60 秒。长片按比例扩展。AI 配乐接收这些目标，具体拍点和和声仍需审听；当前没有自动音乐拍点识别或音频时间拉伸。
+配乐在编排阶段按画面结构分段设计：模板项目每章一段，Agent 项目每个导演章节一段，每段写明配器、能量、第一拍事件和交给下一段的衔接（遮挡处上行、转身处重音、道具特写处留白、强拍直切），片尾留画前完成收束。整份分段设计作为一首完整曲子提交给 Seed Audio 1.0（`volcengine/doubao-seed-audio-1-0`）生成，长片在段落边界切分后按绝对时间对齐拼接。没有结构信息的旧项目退回五段比例结构。具体拍点和和声仍需审听；当前没有自动音乐拍点识别或音频时间拉伸，质量报告只记录每段实测电平。
 
 ## 本地运行
 
@@ -66,7 +66,7 @@ MP4 属于生成产物，随交付 ZIP 和网站资源分发，不进入 Git 历
 ```bash
 npm ci
 cp .env.example .env
-# 填写星网密钥、随机后端令牌和配乐所需素材服务地址
+# 填写星网密钥与随机后端令牌
 bash scripts/dev.sh
 ```
 
@@ -81,10 +81,11 @@ bash scripts/dev.sh
 | `STARNET_BASE_URL` / `OPENAI_BASE_URL` | OpenAI 兼容 API 地址，默认 `https://open.embervale.cn` |
 | `STARNET_API_KEY` / `OPENAI_API_KEY` | API Key，只留在 Go 服务端 |
 | `STARNET_LLM_MODEL` / `OPENAI_MODEL` | 默认 GPT‑6 Astra |
-| `STARNET_VIDEO_MODEL` | 默认 SD2 Mini |
+| `STARNET_VIDEO_MODEL` | 默认 MiniMax H3（`starnet/minimax-h3`） |
+| `STARNET_AUDIO_MODEL` | 分段配乐模型，默认 `volcengine/doubao-seed-audio-1-0` |
 | `GO_BACKEND_URL` | 网页服务端连接 Go，本地为 `http://127.0.0.1:8097` |
 | `GO_BACKEND_TOKEN` | 至少 24 字符的随机后端令牌 |
-| `PUBLIC_MEDIA_BASE_URL` | Go 素材服务的 HTTPS 地址，供 AI 配乐读取视频 |
+| `PUBLIC_MEDIA_BASE_URL` | 可选；Go 素材服务的 HTTPS 地址，供需要拉取片段的外部服务使用 |
 | `VOWFILM_CONCURRENCY` | 1–6 路任务，默认 2 |
 
 `.env`、`.dev.vars` 与 `data/` 排除出 Git。也可在网页 **引擎配置** 中填写 API 地址、Key 与模型，无需重启服务。
@@ -99,17 +100,17 @@ bash scripts/dev.sh
 
 ## 工作流
 
-`React → Sites Worker 同源代理 → Go 状态机 → 星网 GPT‑6 / SD2 Mini / Sonilo → FFmpeg`
+`React → Sites Worker 同源代理 → Go 状态机 → 星网 GPT‑6 / SD2 Mini / Seed Audio → FFmpeg`
 
 - GPT‑6 每批最多编排 8 镜，传递前批结尾与全片位置，减少长 JSON 请求超时。Go 校验数量和字段。
 - 风格决定内容、镜头数量、运镜、目标 BPM 和音乐方向；Go 计算变化的镜头时长并补齐转场重叠帧。
 - 动作/构图切接为主，最多两处叠化或短闪白。欢快、旅行、时尚风格不采用慢叠化。匹配依赖生成指令，目前没有自动视觉匹配检测或光流转场。
 - FFmpeg 统一画幅与 24 fps，烧录中文标题和字幕、混音并验收时长。
-- Sonilo 读取一小时有效、限定单个文件的签名视频 URL；签名不授予修改权限。
+- 配乐按章节分段设计后一次提交 Seed Audio 1.0，任务 ID 按段持久化，失败退回本地器乐并如实记录来源。
 - 单进程数据库事务保存、本地媒体、秒数预算、幂等提交、恢复与 CDN 下载校验，支持独立账号与项目隔离；当前单 Go 实例，多实例生产需队列与对象存储。
 - 视频生成预算为成片时长的 3 倍，每镜最多 3 次有编号提交。这不是人民币账单，不包含 LLM 与音乐费用。
 
-`server/internal/studio/` 下：`provider.go` 包含分镜 Prompt，`treatment.go` 包含现场用途、导演方案 Prompt 与造型约束；`style.go` 是风格库；`model.go` 编排帧数；`workflow.go` 管理任务；`soundtrack.go` 生成配乐并签名素材；`render.go` 剪辑与排字幕。详见 [工作流说明](docs/workflow.md)。
+`server/internal/studio/` 下：`provider.go` 包含分镜 Prompt，`treatment.go` 包含现场用途、导演方案 Prompt 与造型约束；`style.go` 是风格库；`model.go` 编排帧数；`workflow.go` 管理任务；`score.go` 设计分段配乐、提交 Seed Audio 并对齐拼接，`soundtrack.go` 是音频接口与媒体签名；`render.go` 剪辑与排字幕。详见 [工作流说明](docs/workflow.md)。
 
 ## 验证与边界
 

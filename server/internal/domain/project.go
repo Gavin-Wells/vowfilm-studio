@@ -41,12 +41,34 @@ type Event struct {
 	At      string `json:"at"`
 	Message string `json:"message"`
 }
+// MusicSection is one designed passage of the score. Sections follow the
+// picture structure (template chapters or treatment acts) so every musical
+// change lands where the edit changes, and each boundary carries an explicit
+// join so the composer model knows how to hand over to the next passage.
 type MusicSection struct {
 	Name        string  `json:"name"`
 	Start       float64 `json:"start"`
 	End         float64 `json:"end"`
 	Instruments string  `json:"instruments"`
 	Energy      int     `json:"energy"`
+	Chapter     string  `json:"chapter,omitempty"`
+	Prompt      string  `json:"prompt,omitempty"`
+	Accent      string  `json:"accent,omitempty"`
+	Join        string  `json:"join,omitempty"`
+}
+
+// MusicCue is one audio-model request covering a contiguous range of sections.
+// Films up to the model's single-request limit use one cue; longer films are
+// split at section boundaries and rejoined with beat-length crossfades.
+type MusicCue struct {
+	ID      string  `json:"id"`
+	Start   float64 `json:"start"`
+	End     float64 `json:"end"`
+	Prompt  string  `json:"prompt"`
+	TaskID  string  `json:"taskId,omitempty"`
+	File    string  `json:"file,omitempty"`
+	AssetID string  `json:"assetId,omitempty"`
+	Status  string  `json:"status,omitempty"`
 }
 type IdentityReference struct {
 	File         string `json:"file"`
@@ -87,6 +109,7 @@ type Project struct {
 	GenerationMode    string             `json:"generationMode,omitempty"`
 	PromptPolicy      string             `json:"promptPolicy,omitempty"`
 	MusicSections     []MusicSection     `json:"musicSections,omitempty"`
+	MusicCues         []MusicCue         `json:"musicCues,omitempty"`
 	MusicSource       string             `json:"musicSource,omitempty"`
 	MusicTaskID       string             `json:"musicTaskId,omitempty"`
 	MusicFile         string             `json:"musicFile,omitempty"`
@@ -111,6 +134,7 @@ type Act struct {
 	Setting   string  `json:"setting"`
 	StoryBeat string  `json:"storyBeat"`
 	Bridge    string  `json:"bridge"`
+	Music     string  `json:"music,omitempty"`
 	FirstShot int     `json:"firstShot"`
 	LastShot  int     `json:"lastShot"`
 	Start     float64 `json:"start"`

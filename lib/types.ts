@@ -71,6 +71,19 @@ export type Project = {
     end: number;
     instruments: string;
     energy: number;
+    chapter?: string;
+    prompt?: string;
+    accent?: string;
+    join?: string;
+  }[];
+  musicCues?: {
+    id: string;
+    start: number;
+    end: number;
+    prompt: string;
+    taskId?: string;
+    file?: string;
+    status?: string;
   }[];
   musicSource?: string;
   musicFile?: string;
@@ -98,6 +111,7 @@ export type Project = {
       setting: string;
       storyBeat: string;
       bridge: string;
+      music?: string;
       firstShot: number;
       lastShot: number;
       start: number;
@@ -110,6 +124,7 @@ export type StudioConfig = {
   baseUrl: string;
   llmModel: string;
   videoModel: string;
+  audioModel?: string;
   apiKeySet?: boolean;
   apiKeyHint?: string;
   maxDuration: number;

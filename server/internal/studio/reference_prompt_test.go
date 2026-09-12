@@ -6,7 +6,7 @@ import (
 )
 
 func TestReferenceBindingTextUsesStableAssetOrder(t *testing.T) {
-	got := referenceBindingText([]referenceEntry{
+	got := referenceBindingTextEntries(&Project{Scene: "wedding"}, []referenceEntry{
 		{Name: "37.46墨园临水露台.png", Role: "reference"},
 		{Name: "老管家.png", Role: "person"},
 		{Name: "核桃酪-37集.png", Role: "product"},
@@ -27,6 +27,25 @@ func TestReferenceBindingTextUsesStableAssetOrder(t *testing.T) {
 	}
 	if strings.Index(got, "@图片1=") > strings.Index(got, "@图片2=") || strings.Index(got, "@图片2=") > strings.Index(got, "@图片3=") {
 		t.Fatal("reference numbering is not stable")
+	}
+}
+
+func TestCommerceReferenceBindingTreatsCharacterCardAsPerson(t *testing.T) {
+	got := referenceBindingTextEntries(&Project{Scene: "commerce"}, []referenceEntry{
+		{Name: "酒瓶.png", Role: "product"},
+		{Name: "主播.png", Role: "reference"},
+	})
+	for _, want := range []string{
+		"人物卡外貌、服装、发型与体态参考",
+		"人物面部参考：@图片2",
+		"道具参考：@图片1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("commerce binding missing %q in %s", want, got)
+		}
+	}
+	if strings.Contains(got, "场景参考：@图片2") {
+		t.Fatal("commerce character card must not be labeled as scene reference")
 	}
 }
 

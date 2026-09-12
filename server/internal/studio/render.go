@@ -175,6 +175,7 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 		return "", err
 	}
 	music := filepath.Join(dir, "original-score.wav")
+	musicSource := "user_supplied"
 	custom := false
 	for _, asset := range p.Assets {
 		if asset.Role == "music" {
@@ -183,21 +184,30 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 			break
 		}
 	}
-	if !custom && p.CreationMode == "template" {
-		// Fixed templates need a dependable musical bed even when no public
-		// media URL is configured for the optional AI music service.
-		if err := composeTemplateMusic(music, p.Duration, targetBPM(p)); err != nil {
-			return "", err
-		}
-	} else if !custom && rhythmicStyle(p.Style) {
-		generated, err := a.generatedSoundtrack(ctx, p)
+	if !custom {
+		generated, source, err := a.soundtrack(ctx, p)
 		if err != nil {
-			return "", err
-		}
-		music = generated
-	} else if !custom {
-		if err := composeMusic(music, p.Duration); err != nil {
-			return "", err
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			// The film still needs a musical bed. Fall back to the local
+			// procedural score, say so in the project log and quality report,
+			// and leave MusicFile empty so a later re-render retries the model.
+			_ = a.store.Update(p.ID, func(q *Project) error {
+				q.MusicSource = "procedural-fallback"
+				event(q, "AI 配乐未完成（"+clampRunes(err.Error(), 120)+"），本次使用本地器乐替代；仅重新合成可重试")
+				return nil
+			})
+			if p.CreationMode == "template" || rhythmicStyle(p.Style) {
+				if err := composeTemplateMusic(music, p.Duration, targetBPM(p)); err != nil {
+					return "", err
+				}
+			} else if err := composeMusic(music, p.Duration); err != nil {
+				return "", err
+			}
+			musicSource = "procedural_fallback"
+		} else {
+			music, musicSource = generated, source
 		}
 	}
 	subtitles := filepath.Join(dir, "captions.ass")
@@ -206,7 +216,14 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	}
 	name := fmt.Sprintf("vowfilm-r%d-%s.mp4", p.Revision, newID("")[:8])
 	dest := filepath.Join(dir, name)
-	audio := fmt.Sprintf("[1:a]aresample=48000,loudnorm=I=-18:TP=-1.5:LRA=9,afade=t=in:d=2,afade=t=out:st=%d:d=3[a]", p.Duration-3)
+	// Generated and procedural scores are already level-matched with a static
+	// gain; only user uploads need loudness normalization here. Running the
+	// dynamic normalizer on the designed score would flatten its energy curve.
+	level := ""
+	if custom {
+		level = ",loudnorm=I=-18:TP=-1.5:LRA=9"
+	}
+	audio := fmt.Sprintf("[1:a]aresample=48000%s,afade=t=in:d=2,afade=t=out:st=%d:d=3[a]", level, p.Duration-3)
 	subtitleFilter := fmt.Sprintf("subtitles=filename='%s',fade=t=in:d=0.8,fade=t=out:st=%d:d=1.8", strings.ReplaceAll(subtitles, "'", "\\'"), p.Duration-2)
 	if rhythmicStyle(p.Style) {
 		subtitleFilter = fmt.Sprintf("subtitles=filename='%s',fade=t=in:d=0.2,fade=t=out:st=%.2f:d=0.6", strings.ReplaceAll(subtitles, "'", "\\'"), float64(p.Duration)-0.6)
@@ -214,7 +231,7 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	if hold := endHold(p); hold > 0 {
 		end := float64(p.Duration) - hold
 		subtitleFilter = fmt.Sprintf("trim=end_frame=%d,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=%.2f,subtitles=filename='%s',fade=t=in:d=0.2", int(end*24), hold, strings.ReplaceAll(subtitles, "'", "\\'"))
-		audio = fmt.Sprintf("[1:a]aresample=48000,loudnorm=I=-18:TP=-1.5:LRA=9,afade=t=in:d=0.8,afade=t=out:st=%.2f:d=2[a]", end-2)
+		audio = fmt.Sprintf("[1:a]aresample=48000%s,afade=t=in:d=0.8,afade=t=out:st=%.2f:d=2[a]", level, end-2)
 	}
 	comment := "Created with Vowfilm; AI-generated video"
 	if p.Demo {
@@ -230,7 +247,7 @@ func (a *App) render(ctx context.Context, p *Project) (string, error) {
 	if math.Abs(info.Duration-float64(p.Duration)) > 1.0/24+0.01 || info.Width != width || info.Height != height {
 		return "", errors.New("成片时长或尺寸验收未通过")
 	}
-	qa, _ := json.MarshalIndent(map[string]any{"duration_seconds": info.Duration, "width": width, "height": height, "fps": 24, "technical_validation": "passed", "identity_validation": "not_automated", "fictional_demo": p.Demo, "shots": len(p.Shots), "music": map[bool]string{true: "user_supplied", false: map[bool]string{true: "sonilo_generated", false: "original_procedural_piano"}[rhythmicStyle(p.Style) && a.cfg.PublicMediaURL != ""]}[custom]}, "", "  ")
+	qa, _ := json.MarshalIndent(map[string]any{"duration_seconds": info.Duration, "width": width, "height": height, "fps": 24, "technical_validation": "passed", "identity_validation": "not_automated", "fictional_demo": p.Demo, "shots": len(p.Shots), "music": musicSource, "music_sections": measureSections(ctx, music, scoreSections(p)), "music_beat_validation": "not_automated"}, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, "quality-report.json"), qa, 0600)
 	return name, nil
 }
@@ -484,20 +501,37 @@ func composeTemplateMusicLegacy(path string, seconds int, requestedBPM ...int) e
 func validateDirectMedia(p *Project, info MediaInfo) error {
 	// Video models may append one final frame and several AAC padding packets.
 	// Bound both the visual timeline and the container instead of cutting speech.
-	if math.Abs(info.VideoDuration-15) > 1.0/24+0.001 || math.Abs(info.Duration-15) > 0.15 {
+	if math.Abs(info.VideoDuration-15) > 2.0/24+0.001 || math.Abs(info.Duration-15) > 0.15 {
 		return fmt.Errorf("直出广告需为15秒，实际%.3f秒", info.Duration)
 	}
 	if !info.HasAudio || info.AudioDuration < 14.85 {
 		return errors.New("直出广告缺少原生音轨，请检查视频模型是否支持音画生成")
 	}
-	w, h := 1280, 720
-	if p.Ratio == "9:16" {
-		w, h = 720, 1280
-	}
-	if info.Width != w || info.Height != h {
-		return fmt.Errorf("直出广告画幅不符：收到%dx%d，预期%dx%d", info.Width, info.Height, w, h)
+	if !commerceResolutionOK(p.Ratio, info.Width, info.Height) {
+		w, h := 1280, 720
+		if p.Ratio == "9:16" {
+			w, h = 720, 1280
+		}
+		return fmt.Errorf("直出广告画幅不符：收到%dx%d，预期至少%dx%d且比例接近%s", info.Width, info.Height, w, h, p.Ratio)
 	}
 	return nil
+}
+
+func commerceResolutionOK(ratio string, width, height int) bool {
+	if width <= 0 || height <= 0 {
+		return false
+	}
+	minW, minH := 1280, 720
+	target := 16.0 / 9.0
+	if ratio == "9:16" {
+		minW, minH = 720, 1280
+		target = 9.0 / 16.0
+	}
+	if width < minW || height < minH {
+		return false
+	}
+	actual := float64(width) / float64(height)
+	return math.Abs(actual-target) <= 0.025
 }
 func (a *App) renderCommerceDirect(ctx context.Context, p *Project) (string, error) {
 	if err := layout(p); err != nil {

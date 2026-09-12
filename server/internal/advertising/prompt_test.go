@@ -6,7 +6,7 @@ import (
 )
 
 func TestSuppliedSkillIsEmbeddedInEveryStage(t *testing.T) {
-	if Version() != "ad-video-prompt-v3:a3bd10452fa1" {
+	if Version() != "ad-video-prompt-v3:9d203d6fac37" {
 		t.Fatal("source changed: update provenance and review the adapter", Version())
 	}
 	for _, stage := range []string{"direct", "review"} {

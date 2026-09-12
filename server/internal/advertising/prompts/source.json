@@ -2,8 +2,8 @@
   "archive": "ad-video-prompt-v3.zip",
   "archive_sha256": "73a42c493c895b4c69b064233d3bdead526a145dfc704621b550fbb4d002921c",
   "files": {
-    "SKILL.md": "cc7d74efc8138163246b66c3f24ba599dab551241f6b0b7c4fa698b541aab117",
-    "references/ecommerce.md": "932fea5ac73ff7c8ab2c747beb7104f1862b8112205c2f14b7c67b68620a8dca",
+    "SKILL.md": "fdef57d21b2ba1664bc7f97358ed82597c40aa835934a0cc49afba859d2db322",
+    "references/ecommerce.md": "ad9a163a7441ee1c435754fac8e55e9f8675b670c0af7208dbdaf3e63b3c4755",
     "references/patterns.md": "cb5780dcaf2cb28b567ec3661a86b7e5f5a508bfb0222adff2a8f0bade4f93d2",
     "agents/openai.yaml": "f770b7f3abe473b71631710407e89a2bda5d3b75a5927ff6ffed82a72e3a5fd6"
   }

@@ -28,7 +28,12 @@ func referenceEntries(p *Project) []referenceEntry {
 	return entries
 }
 
-func referenceBindingText(entries []referenceEntry) string {
+func referenceBindingText(p *Project) string {
+	return referenceBindingTextEntries(p, referenceEntries(p))
+}
+
+func referenceBindingTextEntries(p *Project, entries []referenceEntry) string {
+	commerce := p != nil && sceneID(p) == "commerce"
 	var b strings.Builder
 	b.WriteString("【参考素材固定对应关系】\n")
 	if len(entries) == 0 {
@@ -44,6 +49,9 @@ func referenceBindingText(entries []referenceEntry) string {
 			"reference": "场景空间与视觉参考，不用于替换人物身份",
 			"identity":  "全片固定人物身份锚点，只锁定脸部、发型、肤色、年龄与体态；不绑定服装、背景或道具",
 		}[entry.Role]
+		if entry.Role == "reference" && commerce {
+			usage = "人物卡外貌、服装、发型与体态参考，不继承背景、动作、站位或构图"
+		}
 		if usage == "" {
 			usage = "视觉参考"
 		}
@@ -59,7 +67,12 @@ func referenceBindingText(entries []referenceEntry) string {
 				groups["人物服装参考"] = append(groups["人物服装参考"], ref)
 			}
 		case "reference":
-			groups["场景参考"] = append(groups["场景参考"], ref)
+			if commerce {
+				groups["人物面部参考"] = append(groups["人物面部参考"], ref)
+				groups["人物服装参考"] = append(groups["人物服装参考"], ref)
+			} else {
+				groups["场景参考"] = append(groups["场景参考"], ref)
+			}
 		default:
 			groups["道具参考"] = append(groups["道具参考"], ref)
 		}
@@ -70,7 +83,11 @@ func referenceBindingText(entries []referenceEntry) string {
 			fmt.Fprintf(&b, "%s：%s\n", label, strings.Join(groups[label], "、"))
 		}
 	}
-	b.WriteString("生成过程中必须始终保持以上编号、主体身份、外观与空间对象一一对应，禁止换脸、串人、错用场景、错用道具。人物面部特征以身份参考为准，不额外添加痣、斑点、面纹或改变年龄；换装只发生在章节剪辑点，不改变人物身份。\n")
+	if commerce {
+		b.WriteString("生成过程中必须始终保持以上编号、人物外观与商品外观一一对应，禁止换脸、串人、错用道具。人物面部特征以人物卡参考为准，不额外添加痣、斑点、面纹或改变年龄。\n")
+	} else {
+		b.WriteString("生成过程中必须始终保持以上编号、主体身份、外观与空间对象一一对应，禁止换脸、串人、错用场景、错用道具。人物面部特征以身份参考为准，不额外添加痣、斑点、面纹或改变年龄；换装只发生在章节剪辑点，不改变人物身份。\n")
+	}
 	b.WriteString("音频参考：本次没有向视频模型提交音频参考，不得使用 @音频N 或声称绑定了声音。后期配乐不属于人物声音参考。\n")
 	return b.String()
 }
@@ -145,5 +162,5 @@ func (a *App) templateIdentityReferences(p *Project, refs []map[string]any, guid
 	result := append([]map[string]any{}, refs...)
 	result = append(result, map[string]any{"type": "image_url", "image_url": map[string]string{"url": "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(raw)}, "role": "reference_image"})
 	entries := append(referenceEntries(p), referenceEntry{"人物身份锚点-" + anchor.SourceShotID + ".jpg", "identity"})
-	return result, referenceBindingText(entries), nil
+	return result, referenceBindingTextEntries(p, entries), nil
 }

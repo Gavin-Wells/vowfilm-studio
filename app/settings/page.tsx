@@ -20,6 +20,7 @@ type ProviderDraft = {
   apiKey: string;
   llmModel: string;
   videoModel: string;
+  audioModel: string;
 };
 
 export default function SettingsPage() {
@@ -29,6 +30,7 @@ export default function SettingsPage() {
     apiKey: '',
     llmModel: '',
     videoModel: '',
+    audioModel: '',
   });
   const [changeKey, setChangeKey] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,6 +45,7 @@ export default function SettingsPage() {
           apiKey: '',
           llmModel: settings.llmModel || '',
           videoModel: settings.videoModel || '',
+          audioModel: settings.audioModel || '',
         });
       })
       .catch((e) => setError((e as Error).message));
@@ -57,6 +60,7 @@ export default function SettingsPage() {
         baseUrl: draft.baseUrl.trim(),
         llmModel: draft.llmModel.trim(),
         videoModel: draft.videoModel.trim(),
+        audioModel: draft.audioModel.trim(),
       };
       if (changeKey || !config?.apiKeySet) {
         body.apiKey = draft.apiKey.trim();
@@ -171,7 +175,7 @@ export default function SettingsPage() {
                 </span>
                 <div>
                   <h2>模型标识</h2>
-                  <p>分别用于 GPT 分镜编排与 SD2 视频生成。</p>
+                  <p>分别用于 GPT 分镜编排、H3 视频生成与分段配乐生成。</p>
                 </div>
               </div>
               <div className="story-grid">
@@ -196,7 +200,18 @@ export default function SettingsPage() {
                     onChange={(e) =>
                       setDraft({ ...draft, videoModel: e.target.value })
                     }
-                    placeholder="volcengine/doubao-seedance-2-0-mini-260615"
+                    placeholder="starnet/minimax-h3"
+                  />
+                </label>
+                <label htmlFor="provider-audio-model">
+                  配乐模型
+                  <input
+                    id="provider-audio-model"
+                    value={draft.audioModel}
+                    onChange={(e) =>
+                      setDraft({ ...draft, audioModel: e.target.value })
+                    }
+                    placeholder="volcengine/doubao-seed-audio-1-0"
                   />
                 </label>
                 <p className="fine-print">

@@ -1,25 +1,25 @@
 package studio
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// Signed media links let an external service read exactly one file for a
+// bounded time. They are kept for integrations that need to fetch a clip; the
+// score itself is generated from the designed cue sheet and does not upload
+// the picture edit anywhere.
 func (a *App) mediaSignature(path, expires string) string {
 	h := hmac.New(sha256.New, []byte(a.cfg.Token))
 	_, _ = h.Write([]byte(path + "\n" + expires))
@@ -36,141 +36,35 @@ func (a *App) validMediaShare(r *http.Request) bool {
 	}
 	return hmac.Equal([]byte(r.URL.Query().Get("signature")), []byte(a.mediaSignature(r.URL.Path, expires)))
 }
-func (a *App) sharedMediaURL(id, name string) (string, error) {
-	base, err := url.Parse(a.cfg.PublicMediaURL)
-	if err != nil || base.Scheme != "https" || base.Host == "" {
-		return "", errors.New("AI 配乐需要配置可访问的 HTTPS 素材服务地址")
+
+// SubmitAudio sends one designed cue to the audio model through the gateway's
+// unified task endpoint. Only the prompt and output format are sent; the
+// gateway archives the result and returns a task ID that the workflow
+// persists before polling.
+func (p *Provider) SubmitAudio(ctx context.Context, prompt, idempotency string) (string, error) {
+	if strings.TrimSpace(prompt) == "" {
+		return "", errors.New("配乐提示词为空")
 	}
-	base.Path = "/api/media/" + id + "/" + name
-	expires := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
-	q := url.Values{"expires": {expires}, "signature": {a.mediaSignature(base.Path, expires)}}
-	base.RawQuery = q.Encode()
-	return base.String(), nil
-}
-func (p *Provider) SubmitMusic(ctx context.Context, project *Project, mediaURL string) (string, error) {
-	var body bytes.Buffer
-	w := multipart.NewWriter(&body)
-	profile := profileForProject(project)
-	direction := profile.Music
-	if project.Treatment != nil {
-		direction = project.Treatment.MusicDirection
+	model := p.config.AudioModel
+	if model == "" {
+		model = defaultAudioModel
 	}
-	prompt := fmt.Sprintf("Compose one original instrumental video soundtrack, exactly %d seconds. Authoritative creative music direction: %s. Evolving lead melody, contrasting harmony and five differentiated sections: 0-13%% opening anticipation; 13-40%% melodic development; 40-67%% contrasting bridge and breathing space; 67-87%% celebratory climax; 87-100%% resolved coda. Keep a %d BPM pulse. Follow the creative direction for instruments and genre. No unchanging loop, vocals or speech. Match the picture edit and chapter transitions. Screening context: %s", project.Duration, direction, targetBPM(project), occasionDirection(project))
-	if endHold(project) > 0 {
-		prompt += fmt.Sprintf(" End the final musical resolution by %.1f seconds, then leave quiet space for the host.", float64(project.Duration)-endHold(project))
-	}
-	for k, v := range map[string]string{"video_url": mediaURL, "mode": "async", "output_format": "mp3", "variants_num": "1", "preserve_speech": "false", "ducking": "false", "prompt_influence": "1", "prompt": prompt} {
-		_ = w.WriteField(k, v)
-	}
-	_ = w.Close()
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(p.config.BaseURL, "/")+"/v1/video-to-music", &body)
+	out, err := p.request(ctx, "POST", "/v1/audio/generate", map[string]any{"model": model, "prompt": prompt, "audio_config": map[string]any{"format": "wav", "sample_rate": 48000}}, idempotency)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("配乐提交未完成：%w", err)
 	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
-	req.Header.Set("Idempotency-Key", fmt.Sprintf("vowfilm:%s:r%d:score-v2", project.ID, project.Revision))
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("AI 配乐服务返回 HTTP %d", resp.StatusCode)
-	}
-	var data map[string]any
-	if json.Unmarshal(raw, &data) != nil {
-		return "", errors.New("配乐服务响应无效")
-	}
-	id := resp.Header.Get("X-Gateway-Task-ID")
+	id, _ := out["task_id"].(string)
 	if id == "" {
-		id, _ = data["task_id"].(string)
+		if data, ok := out["data"].(map[string]any); ok {
+			id, _ = data["task_id"].(string)
+		}
 	}
 	if id == "" {
 		return "", errors.New("配乐服务未返回任务 ID")
 	}
 	return id, nil
 }
-func (a *App) generatedSoundtrack(ctx context.Context, p *Project) (string, error) {
-	dir := filepath.Join(a.cfg.DataDir, p.ID)
-	if p.MusicFile != "" {
-		if s, err := os.Stat(filepath.Join(dir, p.MusicFile)); err == nil && s.Size() > 1000 {
-			return filepath.Join(dir, p.MusicFile), nil
-		}
-	}
-	if p.MusicTaskID == "" {
-		mediaURL, err := a.sharedMediaURL(p.ID, "picture-edit.mp4")
-		if err != nil {
-			return "", err
-		}
-		_ = a.store.Update(p.ID, func(q *Project) error {
-			q.Progress = 91
-			event(q, "正在按画面与五段情绪结构生成 AI 配乐")
-			return nil
-		})
-		id, err := a.provider.SubmitMusic(ctx, p, mediaURL)
-		if err != nil {
-			return "", err
-		}
-		if err = a.store.Update(p.ID, func(q *Project) error { q.MusicTaskID = id; return nil }); err != nil {
-			return "", err
-		}
-		p.MusicTaskID = id
-	}
-	failures := 0
-	for {
-		raw, err := a.provider.request(ctx, "GET", "/v1/tasks/"+p.MusicTaskID, nil, "")
-		if err != nil {
-			failures++
-			if failures >= 5 {
-				return "", fmt.Errorf("配乐任务暂时无法查询，继续时将恢复原任务：%w", err)
-			}
-		} else {
-			failures = 0
-			status, _ := raw["status"].(string)
-			if status == "failed" || status == "cancelled" || status == "expired" {
-				return "", errors.New("AI 配乐任务未完成，请在素材库上传配乐后重新合成")
-			}
-			if status == "succeeded" || status == "completed" {
-				u := audioURL(raw)
-				if u == "" {
-					if id := archivedAssetID(raw); id != "" {
-						u = "https://cdn.embervale.cn/assets/" + id + "/source.mp3"
-					}
-				}
-				if u == "" {
-					return "", errors.New("配乐任务完成但没有返回音频")
-				}
-				name := fmt.Sprintf("soundtrack-r%d.mp3", p.Revision)
-				downloaded := filepath.Join(dir, fmt.Sprintf("score-source-r%d.mp3", p.Revision))
-				if err := downloadSound(ctx, u, downloaded); err != nil {
-					return "", err
-				}
-				if err := ffmpeg(ctx, "-i", downloaded, "-af", "loudnorm=I=-18:TP=-2:LRA=11", "-ar", "48000", "-ac", "2", "-c:a", "libmp3lame", "-q:a", "2", filepath.Join(dir, name)); err != nil {
-					return "", err
-				}
-				if err := a.store.Update(p.ID, func(q *Project) error {
-					q.MusicFile = name
-					q.MusicSource = "sonilo"
-					event(q, "AI 配乐已生成，正在完成最终混音")
-					return nil
-				}); err != nil {
-					return "", err
-				}
-				return filepath.Join(dir, name), nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(8 * time.Second):
-		}
-	}
-}
+
 func audioURL(v any) string {
 	switch x := v.(type) {
 	case map[string]any:
@@ -222,7 +116,7 @@ func downloadSound(ctx context.Context, source, dest string) error {
 		return errors.New("配乐下载地址无效")
 	}
 	allowed := false
-	for _, host := range []string{"embervale.cn", "embervale.ai", "sonilo.com", "sonilo.ai", "amazonaws.com", "cloudfront.net", "a04dd7c600d37fd3409c2689a0c2f467.r2.cloudflarestorage.com"} {
+	for _, host := range []string{"embervale.cn", "embervale.ai", "volces.com", "byteimg.com"} {
 		if u.Hostname() == host || strings.HasSuffix(u.Hostname(), "."+host) {
 			allowed = true
 		}

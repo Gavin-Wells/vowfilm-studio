@@ -75,7 +75,7 @@ func templatePlan(p *Project) (string, []Shot, error) {
 			"只使用用户提供的真实人物与故事资料，不补写姓名、日期或经历。资料仅用于人物细节，不改变此镜固定动作：" + p.Brief,
 			"局部拍摄要求（不改变模板的场景、镜头顺序、服装与时长）：" + p.CustomPrompt,
 		}, "")
-		prompt := withReferenceBindings(body, referenceBindingText(referenceEntries(p)))
+		prompt := withReferenceBindings(body, referenceBindingText(p))
 		shots = append(shots, Shot{ID: fmt.Sprintf("S%02d", i+1), Title: item.Title, Chapter: chapter.Title, Description: item.Action, Camera: item.Camera, Prompt: prompt, Caption: item.Caption, Transition: transition, EntryAction: entryAction, ExitAction: exitAction, TransitionReason: reason, EditFrames: item.EditFrames, Status: "pending", Attempt: 1, ActID: fmt.Sprintf("A%d", item.Chapter+1)})
 	}
 	return "以同一对主角串起古风初见、荷塘同游、中式誓约、复古重逢、现代相伴与当代婚礼；六幕十二镜头，分章换装，片尾留画三秒交还现场。跨时代情节为艺术化表达。", shots, nil

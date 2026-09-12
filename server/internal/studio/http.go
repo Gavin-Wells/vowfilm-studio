@@ -110,6 +110,7 @@ func (a *App) Handler() http.Handler {
 				APIKey     *string `json:"apiKey"`
 				LLMModel   string  `json:"llmModel"`
 				VideoModel string  `json:"videoModel"`
+				AudioModel string  `json:"audioModel"`
 			}
 			if err := decode(w, r, &in); err != nil {
 				fail(w, 400, err)
@@ -119,6 +120,7 @@ func (a *App) Handler() http.Handler {
 				BaseURL:    in.BaseURL,
 				LLMModel:   in.LLMModel,
 				VideoModel: in.VideoModel,
+				AudioModel: in.AudioModel,
 			}
 			updateKey := false
 			if in.APIKey != nil {
@@ -283,6 +285,7 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 				q.MusicTaskID = ""
 				q.MusicFile = ""
 				q.MusicSource = ""
+				q.MusicCues = nil
 				q.MusicSections = scoreSections(q)
 				q.Status = "draft"
 				q.Progress = 0

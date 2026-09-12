@@ -14,6 +14,7 @@ type providerFile struct {
 	APIKey     string `json:"apiKey,omitempty"`
 	LLMModel   string `json:"llmModel"`
 	VideoModel string `json:"videoModel"`
+	AudioModel string `json:"audioModel,omitempty"`
 }
 
 func providerPath(dataDir string) string {
@@ -41,6 +42,9 @@ func loadProviderOverrides(dataDir string, base Config) Config {
 	if v := strings.TrimSpace(file.VideoModel); v != "" {
 		base.VideoModel = v
 	}
+	if v := strings.TrimSpace(file.AudioModel); v != "" {
+		base.AudioModel = v
+	}
 	return base
 }
 
@@ -50,6 +54,7 @@ func saveProviderOverrides(dataDir string, cfg Config) error {
 		APIKey:     strings.TrimSpace(cfg.APIKey),
 		LLMModel:   strings.TrimSpace(cfg.LLMModel),
 		VideoModel: strings.TrimSpace(cfg.VideoModel),
+		AudioModel: strings.TrimSpace(cfg.AudioModel),
 	}
 	raw, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
@@ -84,6 +89,14 @@ func apiKeyHint(key string) string {
 	return "…" + key[len(key)-4:]
 }
 
+// audioModel must be called with cfgMu held.
+func (a *App) audioModel() string {
+	if a.cfg.AudioModel == "" {
+		return defaultAudioModel
+	}
+	return a.cfg.AudioModel
+}
+
 func (a *App) configView() map[string]any {
 	a.cfgMu.RLock()
 	defer a.cfgMu.RUnlock()
@@ -92,6 +105,7 @@ func (a *App) configView() map[string]any {
 		"baseUrl":               a.cfg.BaseURL,
 		"llmModel":              a.cfg.LLMModel,
 		"videoModel":            a.cfg.VideoModel,
+		"audioModel":            a.audioModel(),
 		"apiKeySet":             a.cfg.APIKey != "",
 		"apiKeyHint":            apiKeyHint(a.cfg.APIKey),
 		"maxDuration":           240,
@@ -109,6 +123,10 @@ func (a *App) updateProviderSettings(in providerFile, updateKey bool) error {
 	baseURL := strings.TrimSpace(in.BaseURL)
 	llmModel := strings.TrimSpace(in.LLMModel)
 	videoModel := strings.TrimSpace(in.VideoModel)
+	audioModel := strings.TrimSpace(in.AudioModel)
+	if audioModel == "" {
+		audioModel = defaultAudioModel
+	}
 	if baseURL == "" {
 		return errors.New("请填写 API 地址")
 	}
@@ -127,6 +145,7 @@ func (a *App) updateProviderSettings(in providerFile, updateKey bool) error {
 	next.BaseURL = strings.TrimRight(baseURL, "/")
 	next.LLMModel = llmModel
 	next.VideoModel = videoModel
+	next.AudioModel = audioModel
 	if updateKey {
 		next.APIKey = strings.TrimSpace(in.APIKey)
 	}

@@ -681,10 +681,14 @@ export default function Studio() {
                   </span>
                   <span>
                     {(project?.videoModel || config?.videoModel)?.includes(
-                      'mini',
+                      'minimax-h3',
                     )
-                      ? 'SD2 MINI'
-                      : 'SEEDANCE'}{' '}
+                      ? 'MINIMAX H3'
+                      : (project?.videoModel || config?.videoModel)?.includes(
+                            'mini',
+                          )
+                        ? 'SD2 MINI'
+                        : 'SEEDANCE'}{' '}
                     <b> / </b> 720P
                   </span>
                 </div>
@@ -1073,6 +1077,11 @@ export default function Studio() {
                               </div>
                               <p>{act.storyBeat}</p>
                               <div className="act-setting">{act.setting}</div>
+                              {act.music && (
+                                <div className="act-setting">
+                                  <Music2 size={12} /> {act.music}
+                                </div>
+                              )}
                               <div className="look-detail">
                                 <strong>{look?.name}</strong>
                                 <p>
@@ -1370,9 +1379,12 @@ export default function Studio() {
                       ? '原生声音 · 与画面一起生成'
                       : project.assets.some((a) => a.role === 'music')
                         ? '项目配乐'
-                        : project.musicSource === 'sonilo'
-                          ? 'AI 配乐 · 为这部影片创作'
-                          : '影片配乐'}
+                        : project.musicSource === 'seed-audio' ||
+                            project.musicSource === 'sonilo'
+                          ? 'AI 配乐 · 按章节分段设计'
+                          : project.musicSource === 'procedural-fallback'
+                            ? '本地器乐 · AI 配乐未完成'
+                            : '影片配乐'}
                   </span>
                   {project.scene !== 'commerce' && (
                     <span className="score-tempo">
@@ -1390,7 +1402,13 @@ export default function Studio() {
                       <button
                         key={section.name}
                         style={{ flex: section.end - section.start }}
-                        title={`${section.instruments} · ${clock(section.start)}–${clock(section.end)}`}
+                        title={[
+                          `${section.instruments} · ${clock(section.start)}–${clock(section.end)}`,
+                          section.prompt,
+                          section.join ? `衔接：${section.join}` : '',
+                        ]
+                          .filter(Boolean)
+                          .join('\n')}
                         onClick={() => {
                           if (video.current)
                             video.current.currentTime = section.start;

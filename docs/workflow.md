@@ -69,7 +69,7 @@ draft → planning → planned → generating → rendering → completed
 
 ## HTTP 接口
 
-浏览器通过同源 `/api` 访问。直接调用 Go 时必须携带 `X-Vowfilm-Token`；`/healthz` 无须认证，提供给配乐服务的单个媒体文件可使用限时签名读取。
+浏览器通过同源 `/api` 访问。直接调用 Go 时必须携带 `X-Vowfilm-Token`；`/healthz` 无须认证，单个媒体文件可使用限时签名读取（供需要拉取片段的外部服务使用）。
 
 | 请求                                            | 行为                                           |
 | ----------------------------------------------- | ---------------------------------------------- |
@@ -91,15 +91,18 @@ draft → planning → planned → generating → rendering → completed
 本次接口依据星网网关实际文档及调用结果实现。不同 Seedance 型号在实名授权、参考图和首尾帧方面可能有不同约束，切换型号时需要重新验证适配器。
 
 
-## AI 配乐节点
+## 分段配乐节点（Seed Audio 1.0）
 
-剪辑画面就绪后，Go 生成仅允许读取该视频、一小时过期的 HMAC 签名 URL，再向星网 `POST /v1/video-to-music` 提交 multipart：`video_url`、`mode=async`、`output_format=mp3`、`variants_num=1`、`prompt_influence=1` 与风格化配乐 Prompt。
+配乐在编排阶段就设计完成，代码在 `score.go`。分镜布局确定后，`scoreSections` 按画面结构生成配乐段落（`MusicSection`）：模板项目每个章节一段，起止时间来自目录中的 `editFrames`；Agent 项目每个导演章节（act）一段，起止来自布局后的 `act.start/end`；没有结构信息的旧项目退回五段比例结构。每段带有：`instruments` 配器、`energy` 能量（0–100）、`accent` 本段第一拍的事件（hit / groove / drop / break / return / climax）、`prompt` 音乐设计和 `join` 交给下一段的衔接方式。
 
-Prompt 要求一首连贯的原创器乐：0–13% 简洁引子，13–40% 主旋律与轻节奏，40–67% 相对小调或对比和声的桥段与节奏留白，67–87% 完整鼓组和主旋律变奏的高潮，87–100% 旋律回归与明确终止；不使用单一琶音从头循环到尾。六种风格传入不同的乐器、律动与音乐类型。
+- 模板：章节音乐写在 `templates/catalog.json` 的 `chapters[].music`，衔接与画面转场对齐（例如第 20 秒强落点对应誓约章节的闪白，第 30 秒截断对应复古段的律动切换，第 57 秒收束对应片尾留画）。
+- Agent：GPT‑6 在导演方案里为每章返回 `music`（60 字内），后端把章节 `bridge` 翻译成音乐衔接：`veil` 遮挡处弦乐上行与镲声渐强、`spin` 转身处鼓点重音、`prop` 道具特写处留白半拍、`cut` 强拍直切。最后一章包含高潮与收束，并写入片尾留画秒数。
 
-任务 ID 持久化后通过 `/v1/tasks/{id}` 轮询。原生响应中的 `audio[].url` 可能是归档素材对象，需提取 `asset_id` 并下载网关 CDN 中的音频。任务采用包含工程与修订号的幂等键；重做单个镜头时可保留现有配乐。音频混音统一为 48 kHz 双声道 AAC，配合短淡入淡出。
+`planCues` 把段落合并为音频请求（`MusicCue`）：≤110 秒的影片作为一首完整的曲子一次生成，长片只在段落边界切分，每段 Prompt 携带同样的调性、速度和主题描述，中间段要求“开头不做引子、结尾不收束”。Prompt 为中文，包含总时长、BPM、音乐方向、按段的时间表与衔接、片尾要求，限制在 2000 字以内。
 
-五段结构是配乐设计目标；当前未自动识别实际音乐拍点，也未强制变速将每个生成拍点与视觉切点对齐。用户可在网页单独试听音乐并上传替换音轨。
+提交走网关统一接口 `POST /v1/audio/generate`（`model` 默认 `volcengine/doubao-seed-audio-1-0`，可用 `STARNET_AUDIO_MODEL` 或引擎配置覆盖；输出 48 kHz WAV），任务 ID 与产物文件按 cue 持久化到 `project.musicCues`，幂等键 `vowfilm:<project>:r<revision>:score-v3:<cue>`，暂停恢复不会重复付费。完成后 `assembleScore` 用 FFmpeg 把每个 cue 放到绝对时间位置、裁到设计长度、在硬接处加 80 ms 保护淡变，再补齐/裁切到影片精确时长并做响度归一；成片混音不再循环音轨。
+
+失败时（模型错误、超时、未配置 Key）退回本地器乐 `composeTemplateMusic` / `composeMusic`，在制作记录写明原因，`musicSource` 记为 `procedural-fallback`，且不写入 `musicFile`，因此“仅重新合成”会再次尝试 AI 配乐。`quality-report.json` 记录真实来源 `music`，并在 `music_sections` 中给出每个设计段落的实测 RMS 电平，用于核对能量曲线是否成立；拍点对齐仍标注 `not_automated`，需要人工审听。用户可在网页单独试听音乐并上传替换音轨。
 
 ## 现场片尾
 

@@ -252,6 +252,17 @@ func TestCommerceV3PreservesNativeVideoAndAudio(t *testing.T) {
 	if validateDirectMedia(p, info) != nil {
 		t.Fatal("one frame and AAC tail padding rejected")
 	}
+	info.VideoDuration = 15.083333
+	if validateDirectMedia(p, info) != nil {
+		t.Fatal("two-frame H3 padding rejected")
+	}
+	info.Width = 768
+	info.Height = 1344
+	if validateDirectMedia(p, info) != nil {
+		t.Fatal("768x1344 9:16 H3 output rejected")
+	}
+	info.Width = 720
+	info.Height = 1280
 	info.VideoDuration = 15.2
 	if validateDirectMedia(p, info) == nil {
 		t.Fatal("extra visual content accepted as codec padding")

@@ -343,15 +343,14 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 		if err = a.store.Update(id, func(q *Project) error {
 			q.Synopsis = synopsis
 			q.Shots = shots
-			q.MusicSections = scoreSections(q)
 			if sceneID(q) == "commerce" {
 				q.GenerationMode = commerceDirectMode
 				q.Treatment = nil
-				q.MusicSections = nil
 			}
 			q.MusicTaskID = ""
 			q.MusicFile = ""
 			q.MusicSource = ""
+			q.MusicCues = nil
 			q.Revision++
 			q.FilmURL = ""
 			q.LLMModel = a.cfg.LLMModel
@@ -364,6 +363,9 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 			if err := layout(q); err != nil {
 				return err
 			}
+			// Score sections follow the laid-out chapters/acts, so design them
+			// only after the timeline is final.
+			q.MusicSections = scoreSections(q)
 			q.Status = "planned"
 			q.Progress = 16
 			if isDirectCommerce(q) {
@@ -536,7 +538,6 @@ func (a *App) importProbe(id string) {
 }
 func (a *App) references(p *Project) ([]map[string]any, string, error) {
 	refs := []map[string]any{}
-	entries := referenceEntries(p)
 	for _, asset := range p.Assets {
 		if asset.Role == "music" {
 			continue
@@ -563,7 +564,7 @@ func (a *App) references(p *Project) ([]map[string]any, string, error) {
 		refs = append(refs, map[string]any{"type": "image_url", "image_url": map[string]string{"url": u}, "role": "reference_image"})
 
 	}
-	return refs, referenceBindingText(entries), nil
+	return refs, referenceBindingText(p), nil
 }
 func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[string]any, guide string) error {
 	p := a.store.Get(id)

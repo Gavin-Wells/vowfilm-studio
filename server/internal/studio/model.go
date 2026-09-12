@@ -17,14 +17,20 @@ import (
 )
 
 type Config struct {
-	DataDir, BaseURL, APIKey, LLMModel, VideoModel, Token, Addr, PublicMediaURL string
-	Concurrency                                                                 int
-	SetupToken, DatabaseDriver, DatabaseURL                                     string
+	DataDir, BaseURL, APIKey, LLMModel, VideoModel, AudioModel, Token, Addr, PublicMediaURL string
+	Concurrency                                                                             int
+	SetupToken, DatabaseDriver, DatabaseURL                                                 string
 }
+
+// defaultAudioModel is the gateway catalog name for Seed Audio 1.0, which
+// composes the designed score sections. Override with STARNET_AUDIO_MODEL or
+// the engine settings page.
+const defaultAudioModel = "volcengine/doubao-seed-audio-1-0"
 type Asset = domain.Asset
 type Shot = domain.Shot
 type Event = domain.Event
 type MusicSection = domain.MusicSection
+type MusicCue = domain.MusicCue
 type Project = domain.Project
 type Store struct {
 	repo     domain.ProjectRepository

@@ -1,7 +1,6 @@
 package studio
 
 import (
-	"math"
 	"strings"
 	"vowfilm/server/internal/templates"
 )
@@ -63,37 +62,6 @@ func overlapFrames(transition string) int {
 	}
 }
 func rhythmicStyle(style string) bool { return style != "garden" && style != "seaside" && style != "" }
-func scoreSections(p *Project) []MusicSection {
-	if sceneID(p) == "commerce" {
-		return nil
-	}
-	profiles := []struct {
-		name, instruments string
-		ratio             float64
-		energy            int
-	}{
-		{"开场 · 点亮", "拨弦 / 钢琴动机", 0, 25},
-		{"推进 · 相遇", "主旋律 / 贝斯 / 轻打击", 8.0 / 60, 60},
-		{"转折 · 心动", "新和声 / 对答旋律 / 节奏留白", 24.0 / 60, 40},
-		{"高潮 · 庆祝", "完整鼓组 / 主旋律变奏 / 和弦铺底", 40.0 / 60, 100},
-		{"收尾 · 余韵", "旋律回归 / 渐弱终止", 52.0 / 60, 35},
-	}
-	result := []MusicSection{}
-	for i, s := range profiles {
-		if sceneID(p) != "wedding" {
-			s.name = []string{"开场 · 主题", "推进 · 展开", "转折 · 对比", "高潮 · 重点", "收尾 · 回响"}[i]
-		}
-		if p.Treatment != nil {
-			s.instruments = []string{"主题动机引入", "第一主题展开", "对比主题 / 节奏留白", "主旋律变奏 / 情绪高潮", "主题回归 / 收束"}[i]
-		}
-		end := float64(p.Duration)
-		if i+1 < len(profiles) {
-			end = math.Round(profiles[i+1].ratio*float64(p.Duration)*24) / 24
-		}
-		result = append(result, MusicSection{s.name, math.Round(s.ratio*float64(p.Duration)*24) / 24, end, s.instruments, s.energy})
-	}
-	return result
-}
 
 func profileForProject(p *Project) StyleProfile {
 	profile := profileFor(p.Style)

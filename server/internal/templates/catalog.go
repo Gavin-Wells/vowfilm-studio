@@ -6,11 +6,22 @@ import (
 	"vowfilm/server/internal/domain"
 )
 
+// ChapterMusic is the designed score passage for one chapter. Prompt is
+// written for the audio model; Accent names the event at the chapter's first
+// beat and Join describes how the passage hands over to the next chapter.
+type ChapterMusic struct {
+	Prompt      string `json:"prompt"`
+	Instruments string `json:"instruments"`
+	Energy      int    `json:"energy"`
+	Accent      string `json:"accent,omitempty"`
+	Join        string `json:"join,omitempty"`
+}
 type Chapter struct {
-	Title   string `json:"title"`
-	Setting string `json:"setting"`
-	Look    string `json:"look"`
-	Beat    string `json:"beat"`
+	Title   string        `json:"title"`
+	Setting string        `json:"setting"`
+	Look    string        `json:"look"`
+	Beat    string        `json:"beat"`
+	Music   *ChapterMusic `json:"music,omitempty"`
 }
 type Shot struct {
 	Title            string `json:"title"`

@@ -170,6 +170,7 @@ func normalizeTreatment(p *Project, t *Treatment) error {
 		default:
 			return errors.New("章节 bridge 必须使用英文枚举 veil、spin、prop 或 cut")
 		}
+		a.Music = clampRunes(a.Music, 200)
 		used[a.LookID] = true
 	}
 	if len(used) != len(t.Looks) {
@@ -201,7 +202,8 @@ const treatmentPrompt = `你是为婚礼现场大屏设计影片的总导演，�
 思考宾客观看场景：开头抓住注意，中段有具体关系推进和章节变化，末段回到今天与现场。适量大字、避免长篇字幕，不要用连续空镜、摆拍、慢动作凑时长。
 looks：auto模式1–3套有叙事意义的造型，通常日常装→礼服→婚纱西装；固定fixed模式严格1套；custom模式遵循wardrobe_prompt，最多4套。服装可按章节变化，人物身份不变；身份锚点不要包含任何服装。没有实际参考图片或资产时，不要声称使用了已入库的人物/道具资产；文字锚点不能保证逐镜人物完全一致。婚纱/普通西装不能误写成制服，不因“海军蓝”生成军衔或徽章。中式并非强制模板，只有用户要求或叙事适合时采用。
 acts：3–4章，每章绑定一个lookId，同章服装固定；只在章边换装；用转身同方向spin、前景布料遮挡veil、同一花束/书本特写prop接上两段，分别生成换装前后镜头再剪辑，不让同一镜头中人体衣服液化变形。bridge表示此章节通向下一章的衔接；不换装或用户明确要求直接切镜时可cut。给足亮相和互动，严禁每镜换一套。重复用到同一套服装应复用同一个lookId。
-返回结构：{"concept":"100字以内核心叙事","identityAnchor":"不含服装的稳定人物描述；真人参考时严格按已授权照片；无照片时为同一对虚构成年中国新人","openingHook":"开头具体动作","closingLine":"20字内现场友好片尾字幕","musicDirection":"根据用户Prompt、播放用途和叙事设计器乐音乐，明确开场、推进、对比桥段、高潮、收束的乐器/旋律变化","bpm":120,"mustHave":["已采纳要求"],"avoid":["避免项"],"notes":["必要假设或当前未实现的要求"],"looks":[{"id":"look_1","name":"造型名","bride":"新娘完整服装","groom":"新郎完整服装"}],"acts":[{"title":"章节名","lookId":"look_1","setting":"本章连贯场景","storyBeat":"本章发生什么并如何推动关系","bridge":"prop"}]}。
+返回结构：{"concept":"100字以内核心叙事","identityAnchor":"不含服装的稳定人物描述；真人参考时严格按已授权照片；无照片时为同一对虚构成年中国新人","openingHook":"开头具体动作","closingLine":"20字内现场友好片尾字幕","musicDirection":"根据用户Prompt、播放用途和叙事设计器乐音乐，明确开场、推进、对比桥段、高潮、收束的乐器/旋律变化","bpm":120,"mustHave":["已采纳要求"],"avoid":["避免项"],"notes":["必要假设或当前未实现的要求"],"looks":[{"id":"look_1","name":"造型名","bride":"新娘完整服装","groom":"新郎完整服装"}],"acts":[{"title":"章节名","lookId":"look_1","setting":"本章连贯场景","storyBeat":"本章发生什么并如何推动关系","bridge":"prop","music":"本章器乐设计60字内：配器与能量、主题如何变化、结尾如何交给下一章"}]}。
+music按章设计一部完整的曲子：全片一个主题动机，各章配器和能量递进，章边的音乐衔接要对应bridge动作（遮挡处上行、转身处重音、道具特写处留白），末章包含高潮和收束。
 面向人的描述使用中文，id、lookId和bridge使用英文标识。bridge必须与本章storyBeat的结束动作对应：花束或物件遮镜为prop，前景白纱遮镜为veil，背朝镜头旋转为spin，普通切接为cut。先决定本章结尾，再填写对应枚举。每章等长，具体帧数由后端量化，不臆测镜头数量。必须返回3–4章与有效造型引用。`
 
 func (p *Provider) Develop(ctx context.Context, project *Project) (*Treatment, error) {
