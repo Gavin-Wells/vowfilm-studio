@@ -44,14 +44,14 @@ func TestLiveGenerateTemplateV3(t *testing.T) {
 		AudioModel:     valEnv("STARNET_AUDIO_MODEL", defaultAudioModel),
 		Concurrency:    1,
 	}
-	if cfg.APIKey == "" {
-		t.Fatal("STARNET_API_KEY or provider.json must be configured")
-	}
 	a, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.database.Close()
+	if a.cfg.APIKey == "" {
+		t.Fatal("STARNET_API_KEY or data/provider.json must be configured")
+	}
 
 	ownerID := os.Getenv("VOWFILM_LIVE_OWNER")
 	if ownerID == "" {
