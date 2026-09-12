@@ -93,13 +93,21 @@ func TestLiveGenerateTemplateV3(t *testing.T) {
 	}
 	t.Log("project", p.ID)
 
-	q, err := a.quote(ownerID, a.store.Get(p.ID), "generate", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := withUser(withQuote(httptestNewRequest("POST", "/api/projects/"+p.ID+"/generate", nil), q.ID), owner)
-	if err = a.startBilled(req, p.ID, "generate", ""); err != nil {
-		t.Fatal(err)
+	for _, action := range []string{"plan", "generate"} {
+		q, err := a.quote(ownerID, a.store.Get(p.ID), action, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := withUser(withQuote(httptestNewRequest("POST", "/api/projects/"+p.ID+"/"+action, nil), q.ID), owner)
+		if err = a.startBilled(req, p.ID, action, ""); err != nil {
+			t.Fatalf("%s: %v", action, err)
+		}
+		if action == "plan" {
+			waitTask(t, a, 2*time.Minute)
+			if len(a.store.Get(p.ID).Shots) == 0 {
+				t.Fatal("plan did not create template shots")
+			}
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 110*time.Minute)
@@ -149,4 +157,21 @@ func httptestNewRequest(method, target string, body any) *http.Request {
 func withQuote(r *http.Request, quoteID string) *http.Request {
 	r.Header.Set("X-Vowfilm-Quote", quoteID)
 	return r
+}
+
+func waitTask(t *testing.T, a *App, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		a.mu.Lock()
+		active := len(a.running) > 0
+		a.mu.Unlock()
+		if !active {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("task timed out")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

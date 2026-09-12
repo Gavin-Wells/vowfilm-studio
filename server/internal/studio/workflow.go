@@ -177,7 +177,7 @@ func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 		}
 	}
 	err := a.store.Update(id, func(q *Project) error {
-		if mode == "generate" && q.CreationMode == "template" {
+		if mode == "generate" && q.CreationMode == "template" && len(q.Shots) > 0 {
 			// Re-apply the catalog schedule before retrying or resuming a
 			// template. This upgrades source durations for short net cuts while
 			// preserving completed media and transition choices.
