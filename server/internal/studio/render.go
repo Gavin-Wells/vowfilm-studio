@@ -498,14 +498,14 @@ func composeTemplateMusicLegacy(path string, seconds int, requestedBPM ...int) e
 
 // Direct advertisements keep model timing and native speech/music. No clip handles,
 // concatenation, synthetic score, fades, or automatic titles are applied.
+func validateCommerceSegmentMedia(shot Shot, info MediaInfo) error {
+	_ = shot
+	return validateCommerceMediaEssentials(info)
+}
+
 func validateDirectMedia(p *Project, info MediaInfo) error {
-	// Video models may append one final frame and several AAC padding packets.
-	// Bound both the visual timeline and the container instead of cutting speech.
-	if math.Abs(info.VideoDuration-15) > 2.0/24+0.001 || math.Abs(info.Duration-15) > 0.15 {
-		return fmt.Errorf("直出广告需为15秒，实际%.3f秒", info.Duration)
-	}
-	if !info.HasAudio || info.AudioDuration < 14.85 {
-		return errors.New("直出广告缺少原生音轨，请检查视频模型是否支持音画生成")
+	if err := validateCommerceMediaEssentials(info); err != nil {
+		return err
 	}
 	if !commerceResolutionOK(p.Ratio, info.Width, info.Height) {
 		w, h := 1280, 720
@@ -513,6 +513,16 @@ func validateDirectMedia(p *Project, info MediaInfo) error {
 			w, h = 720, 1280
 		}
 		return fmt.Errorf("直出广告画幅不符：收到%dx%d，预期至少%dx%d且比例接近%s", info.Width, info.Height, w, h, p.Ratio)
+	}
+	return nil
+}
+
+func validateCommerceMediaEssentials(info MediaInfo) error {
+	if info.Duration <= 0 || info.VideoDuration <= 0 {
+		return errors.New("广告视频无效或缺少画面轨")
+	}
+	if !info.HasAudio || info.AudioDuration <= 0 {
+		return errors.New("直出广告缺少原生音轨，请检查视频模型是否支持音画生成")
 	}
 	return nil
 }
@@ -537,32 +547,62 @@ func (a *App) renderCommerceDirect(ctx context.Context, p *Project) (string, err
 	if err := layout(p); err != nil {
 		return "", err
 	}
-	s := p.Shots[0]
-	if s.Status != "completed" || s.VideoFile == "" {
-		return "", errors.New("整条广告尚未生成完成")
+	for _, s := range p.Shots {
+		if s.Status != "completed" || s.VideoFile == "" {
+			return "", errors.New("广告片段尚未全部生成完成")
+		}
 	}
 	dir := filepath.Join(a.cfg.DataDir, p.ID)
-	source := filepath.Join(dir, s.VideoFile)
-	info, err := probe(ctx, source)
-	if err != nil {
-		return "", err
-	}
-	if err = validateDirectMedia(p, info); err != nil {
-		return "", err
-	}
 	name := fmt.Sprintf("film-r%d.mp4", p.Revision)
 	target := filepath.Join(dir, name)
+	var source string
+	var info MediaInfo
+	var err error
+	leaders := commerceGenerateLeaders(p.Shots)
+	if len(leaders) == 1 {
+		s := leaders[0]
+		source = filepath.Join(dir, s.VideoFile)
+		info, err = probe(ctx, source)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		source, info, err = a.concatCommerceSegments(ctx, p, dir)
+		if err != nil {
+			return "", err
+		}
+	}
+	if info.Duration <= 0 {
+		return "", errors.New("广告成片无效")
+	}
 	if strings.TrimSpace(p.EndingText) != "" {
 		// Only an explicit ending overlay is rendered; keep the original audio stream.
 		overlay := *p
 		overlay.Shots = append([]Shot(nil), p.Shots...)
-		overlay.Shots[0].Caption = ""
+		for i := range overlay.Shots {
+			overlay.Shots[i].Caption = ""
+		}
 		overlay.Treatment = nil
 		ass := filepath.Join(dir, "direct-ending.ass")
 		if err = os.WriteFile(ass, []byte(makeASS(&overlay, info.Width, info.Height)), 0600); err != nil {
 			return "", err
 		}
 		err = ffmpeg(ctx, "-i", source, "-map", "0:v:0", "-map", "0:a:0", "-vf", "ass="+ass, "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-threads", "2", "-c:a", "copy", "-movflags", "+faststart", target)
+	} else if len(leaders) == 1 {
+		src, e := os.Open(source)
+		if e != nil {
+			return "", e
+		}
+		defer src.Close()
+		dst, e := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+		if e != nil {
+			return "", e
+		}
+		_, err = io.Copy(dst, src)
+		closeErr := dst.Close()
+		if err == nil {
+			err = closeErr
+		}
 	} else {
 		src, e := os.Open(source)
 		if e != nil {
@@ -582,12 +622,29 @@ func (a *App) renderCommerceDirect(ctx context.Context, p *Project) (string, err
 	if err != nil {
 		return "", err
 	}
-	final, err := probe(ctx, target)
-	if err != nil {
-		return "", err
-	}
-	if err = validateDirectMedia(p, final); err != nil {
-		return "", err
-	}
 	return name, nil
+}
+
+func (a *App) concatCommerceSegments(ctx context.Context, p *Project, dir string) (string, MediaInfo, error) {
+	leaders := commerceGenerateLeaders(p.Shots)
+	args := []string{}
+	filters := []string{}
+	for i, s := range leaders {
+		path := filepath.Join(dir, s.VideoFile)
+		args = append(args, "-i", path)
+		filters = append(filters, fmt.Sprintf("[%d:v]settb=AVTB,setpts=PTS-STARTPTS[v%d]", i, i))
+		filters = append(filters, fmt.Sprintf("[%d:a]asetpts=PTS-STARTPTS[a%d]", i, i))
+	}
+	parts := ""
+	for i := range leaders {
+		parts += fmt.Sprintf("[v%d][a%d]", i, i)
+	}
+	filters = append(filters, fmt.Sprintf("%sconcat=n=%d:v=1:a=1[v][a]", parts, len(leaders)))
+	joined := filepath.Join(dir, fmt.Sprintf("commerce-joined-r%d.mp4", p.Revision))
+	filter := strings.Join(filters, ";")
+	if err := ffmpeg(ctx, append(args, "-filter_complex", filter, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-threads", "2", joined)...); err != nil {
+		return "", MediaInfo{}, err
+	}
+	info, err := probe(ctx, joined)
+	return joined, info, err
 }

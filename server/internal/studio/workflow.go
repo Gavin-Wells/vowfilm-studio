@@ -20,16 +20,17 @@ import (
 )
 
 type App struct {
-	accounts  *platform.Service
-	database  *storage.SQLRepository
-	billingMu sync.Mutex
-	cfg       Config
-	cfgMu     sync.RWMutex
-	store     *Store
-	provider  *Provider
-	mu        sync.Mutex
-	running   map[string]context.CancelFunc
-	slots     chan struct{}
+	accounts   *platform.Service
+	database   *storage.SQLRepository
+	billingMu  sync.Mutex
+	cfg        Config
+	cfgMu      sync.RWMutex
+	store      *Store
+	provider   *Provider
+	mu         sync.Mutex
+	identityMu sync.Mutex
+	running    map[string]context.CancelFunc
+	slots      chan struct{}
 }
 
 func New(cfg Config) (*App, error) {
@@ -137,7 +138,7 @@ func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 	apiKey := a.cfg.APIKey
 	a.cfgMu.RUnlock()
 	current := a.store.Get(id)
-	localTemplatePlan := mode == "plan" && current != nil && current.CreationMode == "template"
+	localTemplatePlan := mode == "plan" && current != nil && current.CreationMode == "template" && !isWeddingTemplate(current)
 	if apiKey == "" && mode != "render" && !localTemplatePlan {
 		return errors.New("请先配置创作 API Key")
 	}
@@ -156,6 +157,9 @@ func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 	if err := validateCommerceAction(p, mode); err != nil {
 		return err
 	}
+	if err := a.validateWeddingAction(p, mode); err != nil {
+		return err
+	}
 	if mode == "generate" || mode == "shot" {
 		for _, asset := range p.Assets {
 			if (asset.Role == "bride" || asset.Role == "groom" || asset.Role == "person") && asset.ProviderAssetID == "" {
@@ -166,7 +170,7 @@ func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 	if mode == "review" && len(p.Shots) == 0 {
 		return errors.New("请先编排分镜再审阅")
 	}
-	if mode == "render" {
+	if mode == "render" && !isWeddingTemplate(p) {
 		if len(p.Shots) == 0 {
 			return errors.New("请先生成镜头")
 		}
@@ -208,13 +212,17 @@ func (a *App) start(id, mode, shotID string, chargeIDs ...string) error {
 		if mode == "generate" {
 			for i := range q.Shots {
 				s := &q.Shots[i]
-				if s.Status == "failed" && s.TaskID != "" {
-					if s.Attempt >= 3 {
-						return fmt.Errorf("镜头 %s 已达到三次生成上限", s.Title)
-					}
-					resetShot(s)
-					s.Reserved = false
+				if isDirectCommerce(q) && s.GenerateGroup != "" && !s.GenerateUnit {
+					continue
 				}
+				if s.Status != "failed" {
+					continue
+				}
+				if s.Attempt >= 3 {
+					return fmt.Errorf("镜头 %s 已达到三次生成上限", s.Title)
+				}
+				resetShot(s)
+				s.Reserved = false
 			}
 		}
 		q.Status = "generating"
@@ -266,8 +274,42 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 	if p == nil {
 		return errors.New("项目不存在")
 	}
+	if isWeddingTemplate(p) {
+		shot := ""
+		if len(selectedShots) > 0 {
+			shot = selectedShots[0]
+		}
+		return a.runWedding(ctx, id, mode, shot)
+	}
 	if err := validateCommerceAction(p, mode); err != nil {
 		return err
+	}
+	if mode == "generate" {
+		if err := a.store.Update(id, func(q *Project) error {
+			anchorLeader := commerceAnchorLeaderID(q)
+			for i := range q.Shots {
+				s := &q.Shots[i]
+				if isDirectCommerce(q) && s.GenerateGroup != "" && !s.GenerateUnit {
+					continue
+				}
+				if s.Status != "failed" {
+					continue
+				}
+				if s.Attempt >= 3 {
+					return fmt.Errorf("镜头 %s 已达到三次生成上限", s.Title)
+				}
+				resetShot(s)
+				s.Reserved = false
+				if anchorLeader != "" && s.ID == anchorLeader {
+					q.IdentityReference = nil
+				}
+			}
+			q.FilmURL = ""
+			return nil
+		}); err != nil {
+			return err
+		}
+		p = a.store.Get(id)
 	}
 	if mode == "review" && len(p.Shots) > 0 {
 		if err := a.store.Update(id, func(q *Project) error {
@@ -344,7 +386,7 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 			q.Synopsis = synopsis
 			q.Shots = shots
 			if sceneID(q) == "commerce" {
-				q.GenerationMode = commerceDirectMode
+				q.GenerationMode = commerceDirectModeFor(q.Duration)
 				q.Treatment = nil
 			}
 			q.MusicTaskID = ""
@@ -369,7 +411,9 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 			q.Status = "planned"
 			q.Progress = 16
 			if isDirectCommerce(q) {
-				event(q, "v3 整条广告指令已就绪：一次直出15秒，保留原生声音")
+				units := commerceGenerateUnitCount(q.Shots)
+				maxSeg := videoModelMaxSegmentSeconds(q.VideoModel)
+				event(q, fmt.Sprintf("v3 分镜已就绪：%d 镜 · %d 次生成（模型单次≤%d秒）· 成片 %d 秒", len(q.Shots), units, maxSeg, q.Duration))
 			} else if q.CreationMode == "template" {
 				event(q, fmt.Sprintf("模板已载入：%d 个固定镜头，等待上传素材或生成", len(shots)))
 			} else {
@@ -397,11 +441,27 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 		}
 		if err = a.store.Update(id, func(q *Project) error {
 			q.Status = "generating"
-			event(q, "开始生成镜头，已完成的片段会自动保存")
+			if isDirectCommerce(q) {
+				units := commerceGenerateUnitCount(q.Shots)
+				if units > 1 {
+					event(q, fmt.Sprintf("开始生成 %d 个视频包：首包固定人物锚点后，其余包并行（并发上限 %d）", units, a.cfg.Concurrency))
+				} else {
+					event(q, "开始生成整条广告，已完成的片段会自动保存")
+				}
+			} else {
+				event(q, "开始生成镜头，已完成的片段会自动保存")
+			}
 			return nil
 		}); err != nil {
 			return err
 		}
+		p = a.store.Get(id)
+		if isDirectCommerce(p) && commerceGenerateUnitCount(p.Shots) > 1 {
+			if err := a.requireCommerceIdentityAnchor(id); err != nil {
+				return err
+			}
+		}
+		p = a.store.Get(id)
 		var wg sync.WaitGroup
 		errs := make(chan error, len(p.Shots))
 		if p.CreationMode == "template" {
@@ -431,9 +491,50 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 					return err
 				}
 			}
+		} else if isDirectCommerce(p) && commerceGenerateUnitCount(p.Shots) > 1 {
+			if err := a.ensureCommerceAnchorLeader(ctx, id, refs, guide, mode, selectedShots...); err != nil {
+				return err
+			}
+			p = a.store.Get(id)
+			for _, s := range commerceGenerateLeaders(p.Shots) {
+				if mode == "shot" && len(selectedShots) > 0 && s.ID != selectedShots[0] {
+					continue
+				}
+				if s.Status == "completed" && s.VideoFile != "" {
+					continue
+				}
+				if s.ID == commerceAnchorLeaderID(p) {
+					continue
+				}
+				sid := s.ID
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					select {
+					case a.slots <- struct{}{}:
+						defer func() { <-a.slots }()
+					case <-ctx.Done():
+						errs <- ctx.Err()
+						return
+					}
+					cur := a.store.Get(id)
+					shotRefs, shotGuide, refErr := a.templateIdentityReferences(cur, refs, guide)
+					if refErr != nil {
+						errs <- refErr
+						return
+					}
+					if err := a.generateShot(ctx, id, sid, shotRefs, shotGuide); err != nil {
+						errs <- err
+					}
+				}()
+			}
+			wg.Wait()
 		} else {
 			for _, s := range p.Shots {
 				if mode == "shot" && len(selectedShots) > 0 && s.ID != selectedShots[0] {
+					continue
+				}
+				if isDirectCommerce(p) && s.GenerateGroup != "" && !s.GenerateUnit {
 					continue
 				}
 				if s.Status == "completed" && s.VideoFile != "" {
@@ -450,7 +551,16 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 						errs <- ctx.Err()
 						return
 					}
-					if err := a.generateShot(ctx, id, sid, refs, guide); err != nil {
+					shotRefs, shotGuide := refs, guide
+					if usesGenerateIdentityChain(a.store.Get(id)) {
+						var refErr error
+						shotRefs, shotGuide, refErr = a.templateIdentityReferences(a.store.Get(id), refs, guide)
+						if refErr != nil {
+							errs <- refErr
+							return
+						}
+					}
+					if err := a.generateShot(ctx, id, sid, shotRefs, shotGuide); err != nil {
 						errs <- err
 					}
 				}()
@@ -483,7 +593,7 @@ func (a *App) run(ctx context.Context, id, mode string, selectedShots ...string)
 		q.Status = "rendering"
 		q.Progress = 86
 		if isDirectCommerce(q) {
-			event(q, "整条广告已生成，正在校验15秒画面与原生音轨")
+			event(q, "广告片段已生成，正在拼接成片与原生音轨")
 		} else {
 			event(q, "镜头已就绪，正在剪辑、排字幕与配乐")
 		}
@@ -577,6 +687,10 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 	if s.ID == "" {
 		return errors.New("镜头不存在")
 	}
+	if isDirectCommerce(p) && s.GenerateGroup != "" && !s.GenerateUnit {
+		return nil
+	}
+	submitSeconds := commerceSubmitDuration(s)
 	if s.TaskID == "" {
 		s.Prompt = withReferenceBindings(s.Prompt, guide)
 		err := a.store.Update(id, func(q *Project) error {
@@ -584,10 +698,10 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 				if q.Shots[i].ID == sid {
 					v := &q.Shots[i]
 					if !v.Reserved {
-						if q.GeneratedSeconds+v.Duration > q.GenerationBudget {
+						if q.GeneratedSeconds+submitSeconds > q.GenerationBudget {
 							return errors.New("本项目已达到生成预算上限，请保留当前成果")
 						}
-						q.GeneratedSeconds += v.Duration
+						q.GeneratedSeconds += submitSeconds
 						v.Reserved = true
 					}
 					v.Status = "submitting"
@@ -662,14 +776,14 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 	}
 	file := fmt.Sprintf("%s-r%d-a%d.mp4", sid, p.Revision, s.Attempt)
 	path := filepath.Join(dir, file)
-	if err := download(ctx, source, path); err != nil {
-		return fmt.Errorf("%s 下载未完成：%w", s.Title, err)
+	if dlErr := download(ctx, source, path); dlErr != nil {
+		return fmt.Errorf("%s 下载未完成：%w", s.Title, dlErr)
 	}
-	info, err := probe(ctx, path)
-	mediaErr := err
-	if mediaErr == nil {
-		if isDirectCommerce(p) {
-			mediaErr = validateDirectMedia(p, info)
+	var mediaErr error
+	if !isDirectCommerce(p) {
+		info, probeErr := probe(ctx, path)
+		if probeErr != nil {
+			mediaErr = probeErr
 		} else if p.CreationMode == "template" && info.Duration+0.08 < s.EditSeconds {
 			mediaErr = errors.New("模板片段画面时长不足")
 		} else if p.CreationMode != "template" && info.Duration+0.08 < s.EditSeconds+0.25 {
@@ -689,12 +803,16 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 		return fmt.Errorf("%s 的媒体检查未通过：%w", s.Title, mediaErr)
 	}
 	thumb := strings.TrimSuffix(file, ".mp4") + ".jpg"
-	if err = thumbnail(ctx, path, filepath.Join(dir, thumb)); err != nil {
-		return err
+	if thumbErr := thumbnail(ctx, path, filepath.Join(dir, thumb)); thumbErr != nil {
+		return thumbErr
 	}
-	return a.store.Update(id, func(q *Project) error {
+	peerIDs := commerceGroupPeerIDs(p.Shots, sid)
+	if err := a.store.Update(id, func(q *Project) error {
 		for i := range q.Shots {
-			if q.Shots[i].ID == sid {
+			for _, pid := range peerIDs {
+				if q.Shots[i].ID != pid {
+					continue
+				}
 				v := &q.Shots[i]
 				v.Status = "completed"
 				v.Error = ""
@@ -713,9 +831,22 @@ func (a *App) generateShot(ctx context.Context, id, sid string, refs []map[strin
 		if q.PosterURL == "" || sid == "S04" {
 			q.PosterURL = mediaURL(id, thumb)
 		}
-		event(q, fmt.Sprintf("镜头 %s 已完成并通过媒体检查（%d/%d）", s.Title, done, len(q.Shots)))
+		doneMsg := fmt.Sprintf("镜头 %s 已完成（%d/%d）", s.Title, done, len(q.Shots))
+		if !isDirectCommerce(q) {
+			doneMsg = fmt.Sprintf("镜头 %s 已完成并通过媒体检查（%d/%d）", s.Title, done, len(q.Shots))
+		}
+		event(q, doneMsg)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	p = a.store.Get(id)
+	if usesGenerateIdentityChain(p) && sid == commerceAnchorLeaderID(p) {
+		if pinErr := a.pinIdentityAnchor(id, sid, file); pinErr != nil {
+			return pinErr
+		}
+	}
+	return nil
 }
 func download(ctx context.Context, raw, path string) error {
 	u, err := url.Parse(raw)

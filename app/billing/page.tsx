@@ -62,11 +62,7 @@ export default function BillingPage() {
     void Promise.resolve().then(load);
   }, [load]);
   return (
-    <PlatformPage
-      eyebrow="CREDITS & BILLING"
-      title="每一笔创作，都有记录"
-      description="确认报价后冻结积分；任务成功结算，失败或取消释放。"
-    >
+    <PlatformPage title="积分与账单">
       <div className="page-toolbar">
         <p>积分仅用于平台内计费，不等同于货币。</p>
         <Button variant="outline" disabled={busy} onClick={() => void load()}>

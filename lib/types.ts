@@ -22,6 +22,9 @@ export type Shot = {
   actId?: string;
   lookId?: string;
   changeToLookId?: string;
+  factIds?: string[];
+  cueIds?: string[];
+  imagePrompt?: string;
 };
 export type Asset = {
   id: string;
@@ -33,6 +36,7 @@ export type Asset = {
   providerAssetId?: string;
 };
 export type Project = {
+  wedding?: WeddingWorkflow;
   creationMode?: string;
   templateId?: string;
   templateVersion?: string;
@@ -90,6 +94,8 @@ export type Project = {
   musicUrl?: string;
   occasion?: string;
   customPrompt?: string;
+  voiceoverScript?: string;
+  voiceDirection?: string;
   wardrobeMode?: string;
   wardrobePrompt?: string;
   endingText?: string;
@@ -118,6 +124,44 @@ export type Project = {
       end: number;
     }[];
   };
+};
+
+export type WeddingArtifact = {
+  id: string;
+  kind: string;
+  name: string;
+  file: string;
+  url: string;
+  mime: string;
+  sha256: string;
+  bytes: number;
+  shotId?: string;
+  text?: string;
+};
+export type WeddingStep = {
+  number: number;
+  name: string;
+  status: string;
+  version: string;
+  artifacts: WeddingArtifact[];
+  approvals: {
+    by: string;
+    actorId: string;
+    evidence: string;
+    at: string;
+    version: string;
+  }[];
+};
+export type WeddingWorkflow = {
+  automatic?: boolean;
+  policyVersion: string;
+  currentStep: number;
+  completed: boolean;
+  steps: WeddingStep[];
+  narrationUrl?: string;
+  narrationSeconds?: number;
+  cues?: { id: string; start: number; end: number; text: string }[];
+  subtitleUrl?: string;
 };
 export type StudioConfig = {
   connected: boolean;

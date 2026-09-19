@@ -103,6 +103,10 @@ func TestTemplateCreationPlanningAndPersistence(t *testing.T) {
 	}
 	call("POST", "/api/projects", map[string]any{"creationMode": "template", "templateId": "missing"}, 400)
 	call("POST", "/api/projects", map[string]any{"creationMode": "agent", "templateId": "wedding-timeless"}, 400)
+	ref := call("POST", "/api/projects", map[string]any{"creationMode": "commerce-ref", "brief": "虚构收纳盒，三格透明盖。"}, 201)
+	if ref.CreationMode != "commerce-ref" || ref.Scene != "commerce" || ref.Duration != 30 || ref.Ratio != "9:16" {
+		t.Fatalf("commerce-ref defaults: %+v", ref)
+	}
 	call("POST", "/api/projects", map[string]any{"creationMode": "unexpected"}, 400)
 	legacy := call("POST", "/api/projects", map[string]any{"scene": "family"}, 201)
 	if legacy.CreationMode != "agent" || legacy.TemplateID != "" || legacy.Duration != 120 {

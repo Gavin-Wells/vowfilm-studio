@@ -69,7 +69,8 @@ func TestOptionalCreativeSettingsHTTP(t *testing.T) {
 		t.Fatal("automatic title was not bounded")
 	}
 	call("POST", "/api/projects", map[string]any{"title": strings.Repeat("名", 81)}, 400)
-	call("POST", "/api/projects", map[string]any{"scene": "commerce", "duration": 30}, 400)
+	call("POST", "/api/projects", map[string]any{"scene": "commerce", "duration": 45}, 201)
+	call("POST", "/api/projects", map[string]any{"scene": "commerce", "duration": 10}, 201)
 	call("POST", "/api/projects", map[string]any{"ratio": "1:1"}, 400)
 	call("POST", "/api/projects", map[string]any{"style": "invalid"}, 400)
 	call("POST", "/api/projects", map[string]any{"wardrobeMode": "custom"}, 400)

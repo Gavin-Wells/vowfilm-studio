@@ -1,0 +1,2 @@
+# Install into the Python environment used by the Go service's python3.
+faster-whisper==1.2.1

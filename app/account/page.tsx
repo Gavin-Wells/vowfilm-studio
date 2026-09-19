@@ -56,11 +56,7 @@ export default function AccountPage() {
     }
   }
   return (
-    <PlatformPage
-      eyebrow="ACCOUNT & SECURITY"
-      title="账号与安全"
-      description="管理身份凭据和登录设备。"
-    >
+    <PlatformPage title="账号与安全">
       {error && (
         <p className="inline-error" role="alert">
           {error}

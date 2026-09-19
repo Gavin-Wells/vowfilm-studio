@@ -3,11 +3,14 @@ package studio
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"vowfilm/server/internal/advertising"
@@ -129,7 +132,7 @@ func (p *Provider) planBatch(ctx context.Context, project *Project, count, offse
 			assignments = append(assignments, map[string]any{"shot_index": i, "act": act, "look": lookByID(project.Treatment, act.LookID)})
 		}
 	}
-	brief := map[string]any{"scene": sceneID(project), "scene_direction": sceneFor(project).Direction, "title": project.Title, "facts": project.Brief, "custom_prompt": project.CustomPrompt, "wardrobe_prompt": project.WardrobePrompt, "duration_seconds": project.Duration, "shot_count": count, "total_shot_count": total, "global_start_index": offset + 1, "global_end_index": offset + count, "previous_shot_context": previous, "batch_instruction": "只输出指定范围内镜头，不要每批重新开场。按全片章节推进，遵循分配到各镜头的造型。", "style_defaults": profile, "ratio": project.Ratio, "fictional_demo": project.Demo, "assets": assetInfo, "occasion_direction": occasionDirection(project), "treatment": project.Treatment, "shot_assignments": assignments, "bpm": targetBPM(project)}
+	brief := map[string]any{"scene": sceneID(project), "scene_direction": sceneFor(project).Direction, "title": project.Title, "facts": project.Brief, "custom_prompt": project.CustomPrompt, "voiceover_script": project.VoiceoverScript, "voice_direction": project.VoiceDirection, "wardrobe_prompt": project.WardrobePrompt, "duration_seconds": project.Duration, "shot_count": count, "total_shot_count": total, "global_start_index": offset + 1, "global_end_index": offset + count, "previous_shot_context": previous, "batch_instruction": "只输出指定范围内镜头，不要每批重新开场。按全片章节推进，遵循分配到各镜头的造型。", "style_defaults": profile, "ratio": project.Ratio, "fictional_demo": project.Demo, "assets": assetInfo, "occasion_direction": occasionDirection(project), "treatment": project.Treatment, "shot_assignments": assignments, "bpm": targetBPM(project)}
 
 	raw, _ := json.Marshal(brief)
 	out, err := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]any{{"role": "system", "content": scenePrompt(project, directorPrompt)}, {"role": "user", "content": string(raw)}}, "reasoning_effort": "low", "max_tokens": 6500}, "")
@@ -190,8 +193,19 @@ func (p *Provider) Submit(ctx context.Context, project *Project, shot Shot, refs
 		if err := validateCommerceAction(project, "generate"); err != nil {
 			return "", err
 		}
-		if !isDirectCommerce(project) || shot.Duration != 15 {
-			return "", errors.New("电商视频需先生成 v3 整条15秒广告指令")
+		if !isDirectCommerce(project) {
+			return "", errors.New("电商视频需先生成 v3 广告指令")
+		}
+		if !shot.GenerateUnit && shot.GenerateGroup != "" {
+			return "", errors.New("该分镜已并入同组生成任务，请提交本组首镜")
+		}
+		maxSeg := videoModelMaxSegmentSeconds(project.VideoModel)
+		submitDur := commerceSubmitDuration(shot)
+		if submitDur > maxSeg {
+			return "", fmt.Errorf("当前视频模型单次最多 %d 秒，该生成包为 %d 秒，请重新编排", maxSeg, submitDur)
+		}
+		if err := validateCommerceStoryboard(project); err != nil {
+			return "", err
 		}
 		if err := advertising.ValidateReferences(shot.Prompt, len(refs)); err != nil {
 			return "", err
@@ -199,7 +213,28 @@ func (p *Provider) Submit(ctx context.Context, project *Project, shot Shot, refs
 	}
 	content := []map[string]any{{"type": "text", "text": shot.Prompt}}
 	content = append(content, refs...)
-	out, err := p.request(ctx, "POST", "/v1/videos/generate", map[string]any{"model": p.config.VideoModel, "content": content, "duration": shot.Duration, "ratio": project.Ratio, "resolution": "720p", "generate_audio": isDirectCommerce(project), "watermark": false}, fmt.Sprintf("vowfilm:%s:r%d:%s:a%d", project.ID, project.Revision, shot.ID, shot.Attempt))
+	duration := shot.Duration
+	if sceneID(project) == "commerce" && isDirectCommerce(project) {
+		duration = commerceSubmitDuration(shot)
+	}
+	body := map[string]any{"model": p.config.VideoModel, "content": content, "duration": duration, "ratio": project.Ratio, "resolution": "720p", "generate_audio": isDirectCommerce(project), "watermark": false}
+	if isWeddingTemplate(project) {
+		if shot.FirstFrameFile == "" || filepath.Base(shot.FirstFrameFile) != shot.FirstFrameFile {
+			return "", errors.New("缺少有效首帧文件")
+		}
+		raw, err := os.ReadFile(filepath.Join(p.config.DataDir, project.ID, shot.FirstFrameFile))
+		if err != nil {
+			return "", err
+		}
+		mime := http.DetectContentType(raw)
+		if !strings.HasPrefix(mime, "image/") {
+			return "", errors.New("首帧不是图片")
+		}
+		delete(body, "content")
+		body["prompt"] = shot.Prompt
+		body["input_refs"] = []map[string]string{{"url": "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw), "role": "first_frame"}}
+	}
+	out, err := p.request(ctx, "POST", "/v1/videos/generate", body, fmt.Sprintf("vowfilm:%s:r%d:%s:a%d", project.ID, project.Revision, shot.ID, shot.Attempt))
 	if err != nil {
 		return "", err
 	}

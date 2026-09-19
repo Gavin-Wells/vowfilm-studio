@@ -58,6 +58,9 @@ func (a *App) billingHTTP(w http.ResponseWriter, r *http.Request) {
 	fail(w, 404, errors.New("计费接口不存在"))
 }
 func (a *App) quote(uid string, p *Project, action, shotID string) (*platform.Quote, error) {
+	if err := a.validateWeddingAction(p, action); err != nil {
+		return nil, err
+	}
 	if err := validateTemplateProject(p); err != nil {
 		return nil, err
 	}
@@ -76,11 +79,24 @@ func (a *App) quote(uid string, p *Project, action, shotID string) (*platform.Qu
 	if p.CreationMode == "template" && action == "plan" {
 		shots = int64(shotCount(p))
 	}
+	if isWeddingTemplate(p) && action == "plan" {
+		shots = max(1, int64(len(p.Wedding.Cues)))
+	}
 	if sceneID(p) == "commerce" && action == "plan" {
 		shots = 1
 	}
+	if sceneID(p) == "commerce" && action == "generate" {
+		if len(p.Shots) > 0 {
+			shots = int64(commerceGenerateUnitCount(p.Shots))
+		} else {
+			shots = int64((p.Duration + videoModelMaxSegmentSeconds(p.VideoModel) - 1) / videoModelMaxSegmentSeconds(p.VideoModel))
+		}
+	}
 	if shots == 0 {
 		shots = int64(shotCount(p))
+	}
+	if isWeddingTemplate(p) && p.Wedding.Automatic && shots == 0 {
+		shots = int64((p.Duration + 8) / 9)
 	}
 	if action == "shot" {
 		found := false
@@ -148,6 +164,9 @@ func (a *App) startBilled(r *http.Request, id, action, shotID string) error {
 	}
 	if isRunning(p.Status) {
 		return errors.New("该项目已有任务在执行")
+	}
+	if err := a.validateWeddingAction(p, action); err != nil {
+		return err
 	}
 	if err := validateCommerceAction(p, action); err != nil {
 		return err

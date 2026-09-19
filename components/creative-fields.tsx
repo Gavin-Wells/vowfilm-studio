@@ -15,6 +15,10 @@ import {
   styleChoices,
   type ProjectDraft,
 } from '@/lib/creative';
+import {
+  commerceDurationOptions,
+  commerceDurationLabel,
+} from '@/lib/commerce';
 
 export function CreativeFields({
   draft,
@@ -120,6 +124,33 @@ export function CreativeFields({
         </CollapsibleContent>
       </Collapsible>
 
+      {draft.scene === 'commerce' && (
+        <div className="creative-voice-fields">
+          <div className="creative-field">
+            <label htmlFor="voiceover-script">口播台词 <span className="creative-optional">选填 · 留空由导演生成</span></label>
+            <textarea
+              id="voiceover-script"
+              rows={3}
+              maxLength={1200}
+              value={draft.voiceoverScript}
+              onChange={(e) => setDraft({ ...draft, voiceoverScript: e.target.value })}
+              placeholder="例如：每天出门前，我都会喷两下，发尾立刻柔顺。"
+            />
+            <p className="fine-print">台词会按目标时长自动分配到口播和商品特写；不会擅自添加价格、功效或认证。</p>
+          </div>
+          <div className="creative-setting-row">
+            <label htmlFor="voice-direction">声音设定</label>
+            <input
+              id="voice-direction"
+              value={draft.voiceDirection}
+              maxLength={160}
+              onChange={(e) => setDraft({ ...draft, voiceDirection: e.target.value })}
+              placeholder="成年女声，亲切自然，语速中等偏快"
+            />
+          </div>
+        </div>
+      )}
+
       <Collapsible
         className="creative-advanced"
         open={advancedOpen}
@@ -165,11 +196,16 @@ export function CreativeFields({
                         }
                         label="影片时长"
                         items={(draft.scene === 'commerce'
-                          ? [15]
+                          ? commerceDurationOptions()
                           : [60, 120, 180, 240]
                         ).map((s) => ({
                           value: String(s),
-                          label: s < 60 ? `${s} 秒` : `${s / 60} 分钟`,
+                          label:
+                            draft.scene === 'commerce'
+                              ? commerceDurationLabel(s)
+                              : s < 60
+                                ? `${s} 秒`
+                                : `${s / 60} 分钟`,
                         }))}
                       />
                     </div>

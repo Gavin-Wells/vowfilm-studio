@@ -12,6 +12,9 @@ func applyProjectDefaults(p *Project) {
 	if p.CreationMode == "" {
 		p.CreationMode = "agent"
 	}
+	if p.CreationMode == commerceRefMode {
+		p.Scene = "commerce"
+	}
 	if p.CreationMode == "agent" {
 		p.TemplateVersion = ""
 	}
@@ -19,6 +22,7 @@ func applyProjectDefaults(p *Project) {
 		p.Scene = "wedding"
 	}
 	templates.Apply(p)
+	weddingInit(p)
 	duration, style, ratio := 60, "joyful", "16:9"
 	switch p.Scene {
 	case "family":
@@ -27,6 +31,13 @@ func applyProjectDefaults(p *Project) {
 		style = "romantic"
 	case "commerce":
 		duration, style, ratio = 15, "editorial", "9:16"
+	}
+	if p.CreationMode == commerceRefMode {
+		p.Scene = "commerce"
+		if p.Duration == 0 {
+			p.Duration = 30
+		}
+		applyCommerceRefTemplate(p)
 	}
 	if p.Duration == 0 {
 		p.Duration = duration

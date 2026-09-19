@@ -28,21 +28,44 @@ func creativeAssets(p *Project) []map[string]any {
 	return out
 }
 
-const commerceDirectMode = "commerce-direct-15s-v3"
-
-func isDirectCommerce(p *Project) bool {
-	return sceneID(p) == "commerce" && p.GenerationMode == commerceDirectMode
-}
-
 func validateCommerceAction(p *Project, action string) error {
 	if sceneID(p) != "commerce" || action == "render" || action == "review" {
 		return nil
 	}
-	if p.Duration != 15 {
-		return errors.New("电商 v3 直出15秒，请在导演手记保存15秒设置后重新编排")
+	if !isCommerceDuration(p.Duration) {
+		return errors.New("电商 v3 支持 10–60 秒整条直出，请在导演手记保存时长后重新编排")
 	}
-	if (action == "generate" || action == "shot") && len(p.Shots) > 0 && (!isDirectCommerce(p) || p.PromptPolicy != advertising.Version() || len(p.Shots) != 1) {
-		return errors.New("这是旧版电商分镜，请先重新编排为 v3 的15秒整条广告")
+	if (action == "generate" || action == "shot") && len(p.Shots) > 0 {
+		if !isDirectCommerce(p) || p.PromptPolicy != advertising.Version() {
+			return errors.New("这是旧版电商分镜，请先重新编排为 v3 整条广告")
+		}
+		if !directCommerceDurationMatches(p) {
+			return errors.New("时长与已编排版本不一致，请重新编排")
+		}
+		if err := validateCommerceStoryboard(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCommerceStoryboard(p *Project) error {
+	if len(p.Shots) < 1 {
+		return errors.New("电商广告缺少分镜")
+	}
+	total := 0
+	maxSeg := videoModelMaxSegmentSeconds(p.VideoModel)
+	for _, s := range p.Shots {
+		if s.Duration <= 0 {
+			return fmt.Errorf("镜头 %s 缺少时长", s.ID)
+		}
+		total += s.Duration
+		if s.GenerateUnit && s.GenerateSeconds > maxSeg {
+			return fmt.Errorf("生成包 %s 为 %d 秒，超过当前模型单次 %d 秒上限", s.GenerateGroup, s.GenerateSeconds, maxSeg)
+		}
+	}
+	if total != p.Duration {
+		return fmt.Errorf("分镜总时长 %d 秒与工程 %d 秒不一致，请重新编排", total, p.Duration)
 	}
 	return nil
 }
@@ -51,43 +74,103 @@ func (p *Provider) planCommerceDirect(ctx context.Context, project *Project) (st
 	if err := validateCommerceAction(project, "plan"); err != nil {
 		return "", nil, err
 	}
-	brief := map[string]any{"title": project.Title, "facts": project.Brief, "custom_prompt": project.CustomPrompt, "duration_seconds": 15, "ratio": project.Ratio, "occasion": occasion(project), "style": project.Style, "assets": creativeAssets(project), "ending_text": project.EndingText, "prompt_policy": advertising.Version(), "native_audio": true}
+	return p.planCommerceStoryboard(ctx, project)
+}
+
+func (p *Provider) planCommerceStoryboard(ctx context.Context, project *Project) (string, []Shot, error) {
+	shotCount := commerceStoryboardShotCount(project.Duration)
+	maxSeg := videoModelMaxSegmentSeconds(p.config.VideoModel)
+	brief := map[string]any{
+		"title": project.Title, "facts": project.Brief, "custom_prompt": project.CustomPrompt,
+		"voiceover_script": project.VoiceoverScript, "voice_direction": project.VoiceDirection,
+		"duration_seconds": project.Duration, "shot_count": shotCount,
+		"shot_duration_hint_seconds": "每镜约2–6秒，总和必须等于 duration_seconds",
+		"video_model":                p.config.VideoModel, "model_max_segment_seconds": maxSeg,
+		"ratio": project.Ratio, "occasion": occasion(project), "style": project.Style,
+		"assets": creativeAssets(project), "ending_text": project.EndingText,
+		"prompt_policy": advertising.Version(), "native_audio": true,
+		"generation_strategy": "storyboard_then_pack_by_model_limit",
+	}
 	raw, _ := json.Marshal(brief)
-	out, err := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{"model": p.config.LLMModel, "messages": []map[string]any{{"role": "system", "content": advertising.SystemPrompt("direct")}, {"role": "user", "content": string(raw)}}, "reasoning_effort": "low", "max_tokens": 6500}, "")
+	out, err := p.request(ctx, "POST", "/v1/chat/completions", map[string]any{
+		"model": p.config.LLMModel,
+		"messages": []map[string]any{
+			{"role": "system", "content": advertising.SystemPrompt("direct-storyboard")},
+			{"role": "user", "content": string(raw)},
+		},
+		"reasoning_effort": "low", "max_tokens": 9000,
+	}, "")
 	if err != nil {
 		return "", nil, err
 	}
 	choices, _ := out["choices"].([]any)
 	if len(choices) == 0 {
-		return "", nil, errors.New("导演没有返回整条广告指令")
+		return "", nil, errors.New("导演没有返回广告分镜")
 	}
 	first, _ := choices[0].(map[string]any)
 	message, _ := first["message"].(map[string]any)
 	content, _ := message["content"].(string)
 	start, end := strings.Index(content, "{"), strings.LastIndex(content, "}")
 	if start < 0 || end <= start {
-		return "", nil, errors.New("广告指令 JSON 格式无效")
+		return "", nil, errors.New("广告分镜 JSON 格式无效")
 	}
 	var plan struct {
-		Synopsis    string `json:"synopsis"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Camera      string `json:"camera"`
-		EntryAction string `json:"entryAction"`
-		ExitAction  string `json:"exitAction"`
-		Prompt      string `json:"prompt"`
+		Synopsis string `json:"synopsis"`
+		Title    string `json:"title"`
+		Shots    []struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			Duration    int    `json:"duration_seconds"`
+			Description string `json:"description"`
+			Camera      string `json:"camera"`
+			EntryAction string `json:"entryAction"`
+			ExitAction  string `json:"exitAction"`
+			Prompt      string `json:"prompt"`
+		} `json:"shots"`
 	}
 	if err = json.Unmarshal([]byte(content[start:end+1]), &plan); err != nil {
-		return "", nil, fmt.Errorf("广告指令 JSON 校验失败：%w", err)
+		return "", nil, fmt.Errorf("广告分镜 JSON 校验失败：%w", err)
 	}
-	if strings.TrimSpace(plan.Title) == "" || len([]rune(plan.Prompt)) > 10000 {
-		return "", nil, errors.New("广告标题缺失或完整指令超过10000字")
+	if strings.TrimSpace(plan.Title) == "" || len(plan.Shots) < 1 {
+		return "", nil, errors.New("广告分镜缺失")
 	}
-	if err = validateCommercialReferences(project, plan.Prompt); err != nil {
+	shots := make([]Shot, len(plan.Shots))
+	sum := 0
+	cursor := 0.0
+	for i, item := range plan.Shots {
+		if item.Duration <= 0 || len([]rune(item.Prompt)) > 8000 {
+			return "", nil, errors.New("分镜时长或指令无效")
+		}
+		if err = validateCommercialReferences(project, item.Prompt); err != nil {
+			return "", nil, err
+		}
+		id := item.ID
+		if id == "" {
+			id = fmt.Sprintf("S%02d", i+1)
+		}
+		title := item.Title
+		if title == "" {
+			title = fmt.Sprintf("%s · 镜%d", plan.Title, i+1)
+		}
+		dur := item.Duration
+		sum += dur
+		shots[i] = Shot{
+			ID: id, Title: title, Chapter: fmt.Sprintf("分镜 %d", i+1),
+			Description: item.Description, Camera: item.Camera,
+			EntryAction: item.EntryAction, ExitAction: item.ExitAction,
+			Prompt: item.Prompt, Transition: "cut", Status: "pending", Attempt: 1,
+			Duration: dur, EditFrames: dur * 24, EditSeconds: float64(dur), TimelineStart: cursor,
+		}
+		cursor += float64(dur)
+	}
+	if sum != project.Duration {
+		return "", nil, fmt.Errorf("分镜总时长 %d 秒，需要 %d 秒", sum, project.Duration)
+	}
+	packed, err := packCommerceGenerateGroups(shots, maxSeg)
+	if err != nil {
 		return "", nil, err
 	}
-	shot := Shot{ID: "S01", Title: plan.Title, Chapter: "15秒完整广告", Description: plan.Description, Camera: plan.Camera, EntryAction: plan.EntryAction, ExitAction: plan.ExitAction, Prompt: plan.Prompt, Transition: "cut", Status: "pending", Attempt: 1, Duration: 15, EditFrames: 360, EditSeconds: 15}
-	return plan.Synopsis, []Shot{shot}, nil
+	return plan.Synopsis, packed, nil
 }
 
 func validateCommercialReferences(p *Project, prompt string) error {

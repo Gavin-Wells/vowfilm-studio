@@ -10,37 +10,45 @@ type Asset struct {
 	ProviderAssetID string `json:"providerAssetId,omitempty"`
 }
 type Shot struct {
-	ID               string  `json:"id"`
-	Title            string  `json:"title"`
-	Chapter          string  `json:"chapter"`
-	Description      string  `json:"description"`
-	Camera           string  `json:"camera"`
-	Prompt           string  `json:"prompt"`
-	Caption          string  `json:"caption"`
-	Transition       string  `json:"transition"`
-	EntryAction      string  `json:"entryAction,omitempty"`
-	ExitAction       string  `json:"exitAction,omitempty"`
-	TransitionReason string  `json:"transitionReason,omitempty"`
-	Duration         int     `json:"duration"`
-	EditSeconds      float64 `json:"editSeconds"`
-	EditFrames       int     `json:"editFrames"`
-	TimelineStart    float64 `json:"timelineStart"`
-	Status           string  `json:"status"`
-	TaskID           string  `json:"taskId,omitempty"`
-	Attempt          int     `json:"attempt"`
-	Reserved         bool    `json:"reserved"`
-	VideoURL         string  `json:"videoUrl,omitempty"`
-	VideoFile        string  `json:"videoFile,omitempty"`
-	ThumbnailURL     string  `json:"thumbnailUrl,omitempty"`
-	Error            string  `json:"error,omitempty"`
-	ActID            string  `json:"actId,omitempty"`
-	LookID           string  `json:"lookId,omitempty"`
-	ChangeToLookID   string  `json:"changeToLookId,omitempty"`
+	ID               string   `json:"id"`
+	Title            string   `json:"title"`
+	Chapter          string   `json:"chapter"`
+	Description      string   `json:"description"`
+	Camera           string   `json:"camera"`
+	Prompt           string   `json:"prompt"`
+	Caption          string   `json:"caption"`
+	Transition       string   `json:"transition"`
+	EntryAction      string   `json:"entryAction,omitempty"`
+	ExitAction       string   `json:"exitAction,omitempty"`
+	TransitionReason string   `json:"transitionReason,omitempty"`
+	Duration         int      `json:"duration"`
+	EditSeconds      float64  `json:"editSeconds"`
+	EditFrames       int      `json:"editFrames"`
+	TimelineStart    float64  `json:"timelineStart"`
+	Status           string   `json:"status"`
+	TaskID           string   `json:"taskId,omitempty"`
+	Attempt          int      `json:"attempt"`
+	Reserved         bool     `json:"reserved"`
+	VideoURL         string   `json:"videoUrl,omitempty"`
+	VideoFile        string   `json:"videoFile,omitempty"`
+	ThumbnailURL     string   `json:"thumbnailUrl,omitempty"`
+	Error            string   `json:"error,omitempty"`
+	ActID            string   `json:"actId,omitempty"`
+	LookID           string   `json:"lookId,omitempty"`
+	ChangeToLookID   string   `json:"changeToLookId,omitempty"`
+	GenerateGroup    string   `json:"generateGroup,omitempty"`
+	GenerateUnit     bool     `json:"generateUnit,omitempty"`
+	GenerateSeconds  int      `json:"generateSeconds,omitempty"`
+	FactIDs          []string `json:"factIds,omitempty"`
+	CueIDs           []string `json:"cueIds,omitempty"`
+	ImagePrompt      string   `json:"imagePrompt,omitempty"`
+	FirstFrameFile   string   `json:"firstFrameFile,omitempty"`
 }
 type Event struct {
 	At      string `json:"at"`
 	Message string `json:"message"`
 }
+
 // MusicSection is one designed passage of the score. Sections follow the
 // picture structure (template chapters or treatment acts) so every musical
 // change lands where the edit changes, and each boundary carries an explicit
@@ -115,11 +123,14 @@ type Project struct {
 	MusicFile         string             `json:"musicFile,omitempty"`
 	Occasion          string             `json:"occasion,omitempty"`
 	CustomPrompt      string             `json:"customPrompt,omitempty"`
+	VoiceoverScript   string             `json:"voiceoverScript,omitempty"`
+	VoiceDirection    string             `json:"voiceDirection,omitempty"`
 	WardrobeMode      string             `json:"wardrobeMode,omitempty"`
 	WardrobePrompt    string             `json:"wardrobePrompt,omitempty"`
 	EndingText        string             `json:"endingText,omitempty"`
 	Treatment         *Treatment         `json:"treatment,omitempty"`
 	IdentityReference *IdentityReference `json:"identityReference,omitempty"`
+	Wedding           *WeddingWorkflow   `json:"wedding,omitempty"`
 }
 type Look struct {
 	ID    string `json:"id"`

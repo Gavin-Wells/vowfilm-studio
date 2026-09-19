@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BrandLogo } from '@/components/brand-logo';
+import { StudioNavLinks } from '@/components/studio-nav-links';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -12,6 +13,7 @@ import {
   LayoutTemplate,
   LoaderCircle,
   Plus,
+  ShoppingBag,
 } from 'lucide-react';
 import { CreativeFields } from '@/components/creative-fields';
 import { TemplateCard } from '@/components/template-card';
@@ -23,6 +25,7 @@ import { api } from '@/lib/api';
 import { useAccount } from '@/components/account-provider';
 import {
   defaultDraft,
+  commerceRefDraft,
   sceneChoices,
   changeScene,
   type ProjectDraft,
@@ -38,11 +41,23 @@ export default function NewFilmPage() {
   const [error, setError] = useState('');
   const [mode, setMode] = useState('template');
   const [agentDraft, setAgentDraft] = useState<ProjectDraft>(defaultDraft);
+  const [commerceDraft, setCommerceDraft] =
+    useState<ProjectDraft>(commerceRefDraft);
   const [presetDraft, setPresetDraft] = useState<ProjectDraft>(() =>
     templateDraft(filmTemplates[0]),
   );
-  const draft = mode === 'template' ? presetDraft : agentDraft;
-  const setDraft = mode === 'template' ? setPresetDraft : setAgentDraft;
+  const draft =
+    mode === 'template'
+      ? presetDraft
+      : mode === 'commerce-ref'
+        ? commerceDraft
+        : agentDraft;
+  const setDraft =
+    mode === 'template'
+      ? setPresetDraft
+      : mode === 'commerce-ref'
+        ? setCommerceDraft
+        : setAgentDraft;
   const selectedTemplate =
     filmTemplates.find((item) => item.id === presetDraft.templateId) ||
     filmTemplates[0];
@@ -73,7 +88,9 @@ export default function NewFilmPage() {
         type: 'success',
         timeout: 5000,
       });
-      router.push(`/?project=${project.id}`);
+      router.push(
+        `${project.templateId === 'wedding-story-guided' ? '/wedding' : '/'}?project=${project.id}`,
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -102,6 +119,7 @@ export default function NewFilmPage() {
                 引擎配置
               </Link>
             )}
+            <StudioNavLinks />
             <Link className="secondary-button" href="/">
               <ArrowLeft size={16} />
               返回工作台
@@ -110,12 +128,6 @@ export default function NewFilmPage() {
         </header>
 
         <main className="new-film-page">
-          <div className="new-film-hero">
-            <div className="eyebrow">NEW CREATIVE PROJECT</div>
-            <h1>开启一部新影片</h1>
-            <p>选一套喜欢的模板，或让 Agent 为你的故事自由创作。</p>
-          </div>
-
           {offline && (
             <output className="message offline new-film-alert">
               生成服务暂时离线，无法创建新影片。请先检查{' '}
@@ -145,6 +157,12 @@ export default function NewFilmPage() {
                     Agent 创作<small>描述想法，自由编排</small>
                   </span>
                 </TabsTrigger>
+                <TabsTrigger value="commerce-ref" disabled={busy}>
+                  <ShoppingBag size={19} aria-hidden="true" />
+                  <span>
+                    带货快创<small>10–60 秒 H3 直出，支持口播</small>
+                  </span>
+                </TabsTrigger>
               </TabsList>
               <TabsContent value="template" className="template-selection">
                 <div className="template-section-heading">
@@ -152,7 +170,7 @@ export default function NewFilmPage() {
                     <span className="eyebrow">TEMPLATE COLLECTION</span>
                     <h2>先看效果，再开始创作</h2>
                   </div>
-                  <span>婚庆 · 1 套模板</span>
+                  <span>婚庆 · {filmTemplates.length} 套模板</span>
                 </div>
                 <div className="template-selection-layout">
                   <div className="film-template-grid">
@@ -186,7 +204,9 @@ export default function NewFilmPage() {
                     <ol>
                       <li>
                         <strong>看看预览</strong>
-                        <span>确认氛围与六幕叙事结构</span>
+                        <span>
+                          确认氛围与{selectedTemplate.chapters.length}幕叙事结构
+                        </span>
                       </li>
                       <li>
                         <strong>填入你们的资料</strong>
@@ -194,11 +214,17 @@ export default function NewFilmPage() {
                       </li>
                       <li>
                         <strong>上传素材，生成影片</strong>
-                        <span>固定 12 个镜头，逐镜生成与合成</span>
+                        <span>
+                          {selectedTemplate.engine === 'wedding-guided'
+                            ? '按真实旁白分镜，一键生成完整影片'
+                            : `固定 ${selectedTemplate.shots.length} 个镜头，逐镜生成与合成`}
+                        </span>
                       </li>
                     </ol>
                     <p className="template-guide-note">
-                      预览区直接播放参考原片，模板会重新编排自己的镜头、造型与字幕规则。
+                      {selectedTemplate.engine === 'wedding-guided'
+                        ? '先看完整演示。填写故事后即可一键成片，也可进入逐步制作，确认文案、首帧与成片。'
+                        : '预览区直接播放参考原片，模板会重新编排自己的镜头、造型与字幕规则。'}
                     </p>
                   </aside>
                 </div>
@@ -248,6 +274,21 @@ export default function NewFilmPage() {
                   </RadioGroup>
                 </section>
               </TabsContent>
+              <TabsContent value="commerce-ref">
+                <div className="agent-introduction">
+                  <ShoppingBag size={26} aria-hidden="true" />
+                  <div>
+                    <h2>带货快创 · live 分镜模版</h2>
+                    <p>
+                      填写商品资料即可一键生成 10–60
+                      秒竖屏广告；支持逐字口播台词、声音设定，可上传商品图或人物参考，也可纯文字描述。
+                      先编排细粒度分镜，再按当前视频模型单次上限（如 H3 15
+                      秒、Seedance 30
+                      秒）打包生成并拼接。进入工作台点「一键生成影片」即可。
+                    </p>
+                  </div>
+                </div>
+              </TabsContent>
             </Tabs>
             <section className="new-film-section">
               <div className="section-heading">
@@ -256,7 +297,7 @@ export default function NewFilmPage() {
                   <h2>
                     {mode === 'template'
                       ? '把你们的故事填进来'
-                      : draft.scene === 'commerce'
+                      : mode === 'commerce-ref' || draft.scene === 'commerce'
                         ? '商品与广告要求'
                         : '素材与创作想法'}
                   </h2>
@@ -291,8 +332,10 @@ export default function NewFilmPage() {
                 <Clapperboard size={18} />
                 <span>
                   {mode === 'template'
-                    ? `使用「${selectedTemplate.name}」· 60 秒横屏 · 12 个固定镜头`
-                    : '创建后将进入工作台，上传素材并开始编排分镜。'}
+                    ? `使用「${selectedTemplate.name}」· ${selectedTemplate.duration} 秒 · ${selectedTemplate.engine === 'wedding-guided' ? '一键故事成片' : `${selectedTemplate.shots.length} 个固定镜头`}`
+                    : mode === 'commerce-ref'
+                      ? `带货快创 · ${draft.duration} 秒竖屏 · 参考图选填`
+                      : '创建后将进入工作台，上传素材并开始编排分镜。'}
                 </span>
               </div>
               <button
@@ -310,7 +353,11 @@ export default function NewFilmPage() {
                 ) : (
                   <Plus size={16} />
                 )}
-                {mode === 'template' ? '使用模板创建' : '交给 Agent 创作'}
+                {mode === 'template'
+                  ? '使用模板创建'
+                  : mode === 'commerce-ref'
+                    ? '创建带货工程'
+                    : '交给 Agent 创作'}
               </button>
             </footer>
           </form>

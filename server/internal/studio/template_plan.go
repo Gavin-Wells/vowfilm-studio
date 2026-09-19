@@ -14,8 +14,18 @@ func validateTemplateProject(p *Project) error {
 		}
 		return nil
 	}
+	if p.CreationMode == commerceRefMode {
+		if p.TemplateID != "" {
+			return errors.New("带货快创不能绑定固定模板")
+		}
+		if p.Scene != "" && p.Scene != "commerce" {
+			return errors.New("带货快创仅支持电商场景")
+		}
+		p.Scene = "commerce"
+		return nil
+	}
 	if p.CreationMode != "template" {
-		return errors.New("请选择模板创作或 Agent 创作")
+		return errors.New("请选择模板创作、带货快创或 Agent 创作")
 	}
 	t, ok := templates.FindVersion(p.TemplateID, p.TemplateVersion)
 	if !ok {

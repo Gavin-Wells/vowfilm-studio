@@ -93,6 +93,8 @@ export type ProjectDraft = {
   brief: string;
   occasion: string;
   customPrompt: string;
+  voiceoverScript: string;
+  voiceDirection: string;
   wardrobeMode: string;
   wardrobePrompt: string;
   endingText: string;
@@ -107,6 +109,8 @@ export const creativeDefaults = {
   scene: 'wedding',
   occasion: 'opening',
   customPrompt: '',
+  voiceoverScript: '',
+  voiceDirection: '自然、可信、语速中等偏快，普通话',
   wardrobeMode: 'auto',
   wardrobePrompt: '',
   endingText: '',
@@ -120,6 +124,22 @@ export function defaultDraft(): ProjectDraft {
     duration: 60,
     style: 'joyful',
     ratio: '16:9',
+  };
+}
+
+export function commerceRefDraft(): ProjectDraft {
+  return {
+    ...creativeDefaults,
+    creationMode: 'commerce-ref',
+    scene: 'commerce',
+    occasion: 'product',
+    title: '',
+    brief: '',
+    customPrompt: '',
+    wardrobeMode: 'fixed',
+    duration: 30,
+    style: 'editorial',
+    ratio: '9:16',
   };
 }
 
@@ -181,8 +201,8 @@ export const sceneChoices = [
       '商品名称、外观/包装、材质、已证实参数、目标人群、使用步骤与行动指引。勿填写未经核实的功效。',
     titleHint: '例如：一杯咖啡的好时光',
     prompt:
-      '按 H3 带货分镜写 15 秒 9:16 完整 prompt：素材绑定→整体设定（音色写清语速偏快、节奏紧凑）→镜头N[00:00-00:15] 时间轴。口播与商品特写交替，台词按约 4.5–5.5 字/秒自检，句间停顿短，可跨镜接上句。换品不残留旧话术；无新增字幕，卖点与 CTA 仅来自资料。',
-    duration: 15,
+      '按 H3 带货分镜写 10–60 秒 9:16 完整 prompt：素材绑定→整体设定（音色写清语速偏快、节奏紧凑）→镜头N时间轴。口播与商品特写交替，台词按约 4.5–5.5 字/秒自检，句间停顿短，可跨镜接上句。换品不残留旧话术；无新增字幕，卖点与 CTA 仅来自资料。',
+    duration: 30,
     style: 'editorial',
     ratio: '9:16',
   },
@@ -201,12 +221,17 @@ export function sceneExamples(id?: string) {
       { name: '商品展示', text: sceneChoice(id).prompt },
       {
         name: '使用演示',
-        text: '15秒使用演示：快节奏口播。镜头1 短句吐槽，镜头2–3 手部特写配合紧凑画外说明，镜头4 快收产品陈列。语速偏快，跨镜接上句；每镜台词≤秒数×5.5字；道具拿放有交代。',
+        text: '使用演示：快节奏口播。开头短句提出问题，中段手部特写配合紧凑画外说明，结尾快速收束产品陈列。语速偏快，跨镜接上句；每镜台词≤秒数×5.5字；道具拿放有交代。',
       },
       {
         name: '真人种草',
-        text: '15秒真人种草：语速偏快、像直播间赶节奏。人物卡+商品图绑定；中景口播与特写硬切，同一声音跨镜。写清入画与标签朝向；台词短句口语化，只基于已提供卖点。',
+        text: '真人种草：语速偏快、像直播间赶节奏。人物卡+商品图绑定；中景口播与特写硬切，同一声音跨镜。写清入画与标签朝向；台词短句口语化，只基于已提供卖点。',
       },
+    ];
+  if (id === 'wedding')
+    return [
+      { name: '相遇误会短剧', text: '婚庆生活短剧：参考图片1为角色A、图片2为角色B，只锁定人物外貌，不继承背景动作。三幕推进：错过一个小物件→两人一起寻找→在花束/信笺中发现惊喜。每镜一个动作，保留自然对白和反应，结尾定格两人看向镜头，避免群像与人体变形。' },
+      { name: '一件物品串起故事', text: '婚庆短剧：用同一束白花或一封信贯穿相遇、陪伴和婚礼当天。人物参考图只用于身份，章节交界换装；对白简短口语化，写清谁说话、谁聆听、动作如何接下一镜。最后三秒留画给主持人。' },
     ];
   return id && id !== 'wedding'
     ? [{ name: `${sceneChoice(id).name}灵感`, text: sceneChoice(id).prompt }]
@@ -234,11 +259,14 @@ export function projectDraft(project: Project): ProjectDraft {
     brief: project.brief,
     occasion: project.occasion || sceneChoice(project.scene).occasions[0],
     customPrompt: project.customPrompt || '',
+    voiceoverScript: project.voiceoverScript || '',
+    voiceDirection:
+      project.voiceDirection || '自然、可信、语速中等偏快，普通话',
     wardrobeMode:
       project.scene === 'commerce' ? 'fixed' : project.wardrobeMode || 'auto',
     wardrobePrompt: project.wardrobePrompt || '',
     endingText: project.endingText || '',
-    duration: project.scene === 'commerce' ? 15 : project.duration,
+    duration: project.duration,
     style:
       project.style === 'garden'
         ? 'romantic'

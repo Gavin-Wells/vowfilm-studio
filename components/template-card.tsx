@@ -14,35 +14,58 @@ export function TemplateCard({
   onSelect: () => void;
   disabled: boolean;
 }) {
+  const guided = template.engine === 'wedding-guided';
   return (
     <article className={'film-template-card' + (selected ? ' selected' : '')}>
       <div className="template-preview">
-        <iframe
-          title="婚庆模板参考片预览"
-          src={
-            'https://player.bilibili.com/player.html?bvid=' +
-            template.referenceBvid +
-            '&page=1&autoplay=0'
-          }
-          allow="fullscreen"
-          allowFullScreen
-          loading="lazy"
-        />
+        {guided ? (
+          <video
+            controls
+            preload="metadata"
+            playsInline
+            poster={template.posterUrl}
+            aria-label="婚礼故事向导完整演示片"
+          >
+            <source src={template.previewUrl} type="video/mp4" />
+            <track
+              kind="captions"
+              src="/demo/wedding-story-guided.vtt"
+              srcLang="zh"
+              label="中文字幕"
+            />
+          </video>
+        ) : (
+          <iframe
+            title="婚庆模板参考片预览"
+            src={
+              'https://player.bilibili.com/player.html?bvid=' +
+              template.referenceBvid +
+              '&page=1&autoplay=0'
+            }
+            allow="fullscreen"
+            allowFullScreen
+            loading="lazy"
+          />
+        )}
       </div>
       <div className="template-preview-toolbar">
         <span>
           <Film size={13} aria-hidden="true" />
-          参考效果预览 · 原作者作品
+          {guided
+            ? '完整模板演示 · 虚构人物与故事'
+            : '参考效果预览 · 原作者作品'}
         </span>
         <a href={template.referenceUrl} target="_blank" rel="noreferrer">
-          在 Bilibili 播放
+          {guided ? '查看原始模板' : '在 Bilibili 播放'}
           <ExternalLink size={13} aria-hidden="true" />
         </a>
       </div>
       <div className="template-card-content">
         <div className="template-title-row">
           <div>
-            <span className="eyebrow">WEDDING FILM / 01</span>
+            <span className="eyebrow">
+              {guided ? 'YOUR STORY / GUIDED' : 'WEDDING FILM / 01'}
+            </span>
             <h3>{template.name}</h3>
           </div>
           <span className="template-spec">
@@ -60,7 +83,9 @@ export function TemplateCard({
         </div>
         <div className="template-card-actions">
           <span className="fine-print">
-            {template.bpm ? `${template.bpm} BPM · 动作转场 · ` : ''}六幕故事 · 分章造型 · 12 镜头
+            {guided
+              ? '一键成片 · 旁白与字幕 · 五幕故事'
+              : `${template.bpm ? `${template.bpm} BPM · ` : ''}${template.chapters.length} 幕故事 · ${template.shots.length} 镜头`}
           </span>
           <button
             type="button"

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BrandLogo } from '@/components/brand-logo';
-import { ArrowRight, KeyRound, ShieldCheck, LoaderCircle } from 'lucide-react';
+import { ArrowRight, KeyRound, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -60,35 +60,12 @@ export default function LoginPage() {
     }
   }
   return (
-    <main className="auth-layout">
-      <section className="auth-story">
-        <div className="auth-brand">
-          <BrandLogo large />
-        </div>
-        <div>
-          <p className="eyebrow">EVERY STORY DESERVES A FILM</p>
-          <h1>
-            让每一种故事，
-            <br />
-            都有自己的光。
-          </h1>
-          <p>
-            从珍贵的家族记忆，到打动人心的品牌表达。一个创作空间，连接灵感、影像与观众。
-          </p>
-          <div className="auth-scenes">
-            <span>婚礼影片</span>
-            <span>家族传承</span>
-            <span>爱情纪念</span>
-            <span>电商营销</span>
-          </div>
-        </div>
-        <p className="auth-footnote">
-          <ShieldCheck size={16} />
-          独立账号 · 私有项目 · 清晰计费
-        </p>
-      </section>
+    <main className="auth-layout auth-layout-single">
       <section className="auth-panel">
         <div className="auth-card">
+          <div className="auth-brand auth-brand-compact">
+            <BrandLogo large />
+          </div>
           {code ? (
             <>
               <KeyRound size={30} />
@@ -120,7 +97,6 @@ export default function LoginPage() {
             </>
           ) : (
             <>
-              <p className="eyebrow">YOUR CREATIVE SPACE</p>
               <h2>
                 {setup
                   ? '初始化你的工作台'

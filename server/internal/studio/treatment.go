@@ -76,7 +76,7 @@ func shotCount(p *Project) int {
 		}
 	}
 	if sceneID(p) == "commerce" {
-		return 1
+		return commerceStoryboardShotCount(p.Duration)
 	}
 	if !rhythmicStyle(p.Style) {
 		return max(4, int(math.Ceil(float64(p.Duration)*8/60)))

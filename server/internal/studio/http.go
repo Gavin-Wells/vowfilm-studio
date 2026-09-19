@@ -15,7 +15,7 @@ import (
 )
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-var validMedia = regexp.MustCompile(`^[A-Za-z0-9_-]+\.(mp4|jpg|jpeg|png|webp|wav|mp3|m4a|ogg)$`)
+var validMedia = regexp.MustCompile(`^[A-Za-z0-9_-]+\.(mp4|jpg|jpeg|png|webp|wav|mp3|m4a|ogg|txt|json|md|srt|vtt)$`)
 var assetID = regexp.MustCompile(`^asset-[A-Za-z0-9_-]+$`)
 
 func respond(w http.ResponseWriter, status int, v any) {
@@ -164,19 +164,21 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var p Project
 	var in struct {
-		CreationMode   string `json:"creationMode"`
-		TemplateID     string `json:"templateId"`
-		Scene          string `json:"scene"`
-		Title          string `json:"title"`
-		Occasion       string `json:"occasion"`
-		CustomPrompt   string `json:"customPrompt"`
-		WardrobeMode   string `json:"wardrobeMode"`
-		WardrobePrompt string `json:"wardrobePrompt"`
-		EndingText     string `json:"endingText"`
-		Brief          string `json:"brief"`
-		Duration       int    `json:"duration"`
-		Style          string `json:"style"`
-		Ratio          string `json:"ratio"`
+		CreationMode    string `json:"creationMode"`
+		TemplateID      string `json:"templateId"`
+		Scene           string `json:"scene"`
+		Title           string `json:"title"`
+		Occasion        string `json:"occasion"`
+		CustomPrompt    string `json:"customPrompt"`
+		VoiceoverScript string `json:"voiceoverScript"`
+		VoiceDirection  string `json:"voiceDirection"`
+		WardrobeMode    string `json:"wardrobeMode"`
+		WardrobePrompt  string `json:"wardrobePrompt"`
+		EndingText      string `json:"endingText"`
+		Brief           string `json:"brief"`
+		Duration        int    `json:"duration"`
+		Style           string `json:"style"`
+		Ratio           string `json:"ratio"`
 	}
 	if err := decode(w, r, &in); err != nil {
 		fail(w, 400, err)
@@ -191,8 +193,9 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	p.Duration = in.Duration
 	p.Style = in.Style
 	p.Ratio = in.Ratio
-	p.Occasion, p.CustomPrompt, p.WardrobeMode, p.WardrobePrompt, p.EndingText = in.Occasion, in.CustomPrompt, in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
+	p.Occasion, p.CustomPrompt, p.VoiceoverScript, p.VoiceDirection, p.WardrobeMode, p.WardrobePrompt, p.EndingText = in.Occasion, in.CustomPrompt, strings.TrimSpace(in.VoiceoverScript), strings.TrimSpace(in.VoiceDirection), in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
 	applyProjectDefaults(&p)
+	applyCommerceRefTemplate(&p)
 	if err := validateProject(&p); err != nil {
 		fail(w, 400, err)
 		return
@@ -208,6 +211,9 @@ func (a *App) projectsHTTP(w http.ResponseWriter, r *http.Request) {
 	p.Events = []Event{}
 	p.OutputResolution = "720P"
 	p.Demo = true
+	if isWeddingTemplate(&p) {
+		p.Demo = false
+	}
 	a.cfgMu.RLock()
 	p.LLMModel = a.cfg.LLMModel
 	p.VideoModel = a.cfg.VideoModel
@@ -231,26 +237,36 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, errors.New("项目不存在"))
 		return
 	}
+	if len(parts) >= 2 && parts[1] == "wedding" {
+		a.weddingHTTP(w, r, p, parts[2:])
+		return
+	}
 	if len(parts) == 1 {
 		if r.Method == "GET" {
 			respond(w, 200, p)
 			return
 		}
 		if r.Method == "PATCH" {
+			if isWeddingTemplate(p) {
+				fail(w, 409, errors.New("请在故事向导中返工并更新对应阶段，保留其他成果"))
+				return
+			}
 			var in struct {
-				CreationMode   string `json:"creationMode"`
-				TemplateID     string `json:"templateId"`
-				Scene          string `json:"scene"`
-				Title          string `json:"title"`
-				Occasion       string `json:"occasion"`
-				CustomPrompt   string `json:"customPrompt"`
-				WardrobeMode   string `json:"wardrobeMode"`
-				WardrobePrompt string `json:"wardrobePrompt"`
-				EndingText     string `json:"endingText"`
-				Brief          string `json:"brief"`
-				Duration       int    `json:"duration"`
-				Style          string `json:"style"`
-				Ratio          string `json:"ratio"`
+				CreationMode    string `json:"creationMode"`
+				TemplateID      string `json:"templateId"`
+				Scene           string `json:"scene"`
+				Title           string `json:"title"`
+				Occasion        string `json:"occasion"`
+				CustomPrompt    string `json:"customPrompt"`
+				VoiceoverScript string `json:"voiceoverScript"`
+				VoiceDirection  string `json:"voiceDirection"`
+				WardrobeMode    string `json:"wardrobeMode"`
+				WardrobePrompt  string `json:"wardrobePrompt"`
+				EndingText      string `json:"endingText"`
+				Brief           string `json:"brief"`
+				Duration        int    `json:"duration"`
+				Style           string `json:"style"`
+				Ratio           string `json:"ratio"`
 			}
 			if err := decode(w, r, &in); err != nil {
 				fail(w, 400, err)
@@ -271,8 +287,9 @@ func (a *App) projectHTTP(w http.ResponseWriter, r *http.Request) {
 				q.Duration = in.Duration
 				q.Style = in.Style
 				q.Ratio = in.Ratio
-				q.Occasion, q.CustomPrompt, q.WardrobeMode, q.WardrobePrompt, q.EndingText = in.Occasion, in.CustomPrompt, in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
+				q.Occasion, q.CustomPrompt, q.VoiceoverScript, q.VoiceDirection, q.WardrobeMode, q.WardrobePrompt, q.EndingText = in.Occasion, in.CustomPrompt, strings.TrimSpace(in.VoiceoverScript), strings.TrimSpace(in.VoiceDirection), in.WardrobeMode, in.WardrobePrompt, strings.TrimSpace(in.EndingText)
 				applyProjectDefaults(q)
+				applyCommerceRefTemplate(q)
 				if err := validateProject(q); err != nil {
 					return err
 				}
@@ -537,6 +554,10 @@ func resetShot(s *Shot) {
 func (a *App) shotHTTP(w http.ResponseWriter, r *http.Request, p *Project, parts []string) {
 	id := parts[0]
 	if len(parts) == 1 && r.Method == "PATCH" {
+		if isWeddingTemplate(p) {
+			fail(w, 409, errors.New("请返工分镜阶段后更新当前版本"))
+			return
+		}
 		var in struct {
 			Prompt string `json:"prompt"`
 		}

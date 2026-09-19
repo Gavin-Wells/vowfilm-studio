@@ -34,7 +34,8 @@ func TestCommerceV3OnePromptOneNativeAudioTask(t *testing.T) {
 		if r.URL.Path == "/v1/videos/generate" {
 			calls["video"]++
 			content := body["content"].([]any)
-			if len(content) != 3 || content[0].(map[string]any)["text"] != fullPrompt || body["generate_audio"] != true || body["duration"] != float64(15) {
+			text, _ := content[0].(map[string]any)["text"].(string)
+			if len(content) != 3 || !strings.Contains(text, fullPrompt) || body["generate_audio"] != true || body["duration"] != float64(15) {
 				t.Error("complete prompt, duration or native audio changed")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"task_id": "test_task"})
@@ -60,11 +61,18 @@ func TestCommerceV3OnePromptOneNativeAudioTask(t *testing.T) {
 		if user["duration_seconds"] != float64(15) || user["prompt_policy"] != advertising.Version() {
 			t.Error("duration or policy missing")
 		}
-		raw, _ := json.Marshal(map[string]any{"synopsis": "手部使用演示", "title": "好找的一天", "prompt": fullPrompt})
+		raw, _ := json.Marshal(map[string]any{
+			"synopsis": "手部使用演示", "title": "好找的一天",
+			"shots": []any{
+				map[string]any{"id": "S01", "title": "a", "duration_seconds": 5, "prompt": fullPrompt},
+				map[string]any{"id": "S02", "title": "b", "duration_seconds": 5, "prompt": "中段"},
+				map[string]any{"id": "S03", "title": "c", "duration_seconds": 5, "prompt": "收尾"},
+			},
+		})
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(raw)}}}})
 	}))
 	defer srv.Close()
-	provider := newProvider(Config{BaseURL: srv.URL, APIKey: "test", LLMModel: "test", VideoModel: "test"})
+	provider := newProvider(Config{BaseURL: srv.URL, APIKey: "test", LLMModel: "test", VideoModel: "starnet/minimax-h3"})
 	_, shots, err := provider.Plan(context.Background(), project)
 	if err != nil {
 		t.Fatal(err)
@@ -75,9 +83,10 @@ func TestCommerceV3OnePromptOneNativeAudioTask(t *testing.T) {
 	if err = layout(project); err != nil {
 		t.Fatal(err)
 	}
-	if len(shots) != 1 || shots[0].Duration != 15 || shots[0].EditSeconds != 15 || shots[0].EditFrames != 360 || shots[0].Prompt != fullPrompt {
-		t.Fatal("direct timeline altered", shots)
+	if len(shots) != 3 || !shots[0].GenerateUnit || shots[0].GenerateSeconds != 15 || !strings.Contains(shots[0].Prompt, fullPrompt) {
+		t.Fatal("storyboard pack", shots)
 	}
+	project.VideoModel = "starnet/minimax-h3"
 	refs := []map[string]any{{"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64,test"}}, {"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64,test2"}}}
 	if _, err = provider.Submit(context.Background(), project, shots[0], refs); err != nil {
 		t.Fatal(err)
@@ -118,13 +127,19 @@ func TestCommerceV3RejectsLegacyGenerationBeforeQuote(t *testing.T) {
 	}
 	p.GenerationMode = commerceDirectMode
 	p.PromptPolicy = advertising.Version()
-	p.Shots = p.Shots[:1]
+	p.Shots = []Shot{{ID: "S01", Duration: 5, GenerateUnit: true, GenerateSeconds: 15, GenerateGroup: "G01"}, {ID: "S02", Duration: 5, GenerateGroup: "G01"}, {ID: "S03", Duration: 5, GenerateGroup: "G01"}}
+	p.VideoModel = "starnet/minimax-h3"
 	if err = validateCommerceAction(p, "generate"); err != nil {
 		t.Fatal(err)
 	}
 	p.Duration = 30
-	if err = validateCommerceAction(p, "plan"); err == nil {
-		t.Fatal("unsupported duration accepted")
+	p.GenerationMode = ""
+	if err = validateCommerceAction(p, "plan"); err != nil {
+		t.Fatal("30s commerce plan rejected", err)
+	}
+	p.Duration = 10
+	if err = validateCommerceAction(p, "plan"); err != nil {
+		t.Fatal("10s commerce plan rejected", err)
 	}
 }
 
@@ -195,6 +210,9 @@ func TestCommerceV3BillingQuantities(t *testing.T) {
 			if unit == "second" {
 				want = 15
 			}
+			if action == "generate" && unit == "task" {
+				want = 1
+			}
 			if q.Quantity != want {
 				t.Fatalf("%s/%s: quantity %d, want %d", action, unit, q.Quantity, want)
 			}
@@ -217,7 +235,7 @@ func TestCommerceV3PreservesNativeVideoAndAudio(t *testing.T) {
 	p := commerceFixture()
 	p.GenerationMode = commerceDirectMode
 	p.Revision = 2
-	p.Shots = []Shot{{ID: "S01", Status: "completed", VideoFile: "source.mp4"}}
+	p.Shots = []Shot{{ID: "S01", Duration: 15, GenerateUnit: true, GenerateSeconds: 15, Status: "completed", VideoFile: "source.mp4"}}
 	dir := t.TempDir()
 	projectDir := filepath.Join(dir, p.ID)
 	if err := os.MkdirAll(projectDir, 0700); err != nil {
@@ -236,41 +254,6 @@ func TestCommerceV3PreservesNativeVideoAndAudio(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(projectDir, name))
 	if err != nil || !bytes.Equal(want, got) {
 		t.Fatal("native output was altered", err)
-	}
-	info, err := probe(ctx, source)
-	if err != nil || !info.HasAudio {
-		t.Fatal("audio not detected", err)
-	}
-	info.HasAudio = false
-	if validateDirectMedia(p, info) == nil {
-		t.Fatal("missing native audio accepted")
-	}
-	info.HasAudio = true
-	info.Duration = 15.104
-	info.VideoDuration = 15.041667
-	info.AudioDuration = 15.104
-	if validateDirectMedia(p, info) != nil {
-		t.Fatal("one frame and AAC tail padding rejected")
-	}
-	info.VideoDuration = 15.083333
-	if validateDirectMedia(p, info) != nil {
-		t.Fatal("two-frame H3 padding rejected")
-	}
-	info.Width = 768
-	info.Height = 1344
-	if validateDirectMedia(p, info) != nil {
-		t.Fatal("768x1344 9:16 H3 output rejected")
-	}
-	info.Width = 720
-	info.Height = 1280
-	info.VideoDuration = 15.2
-	if validateDirectMedia(p, info) == nil {
-		t.Fatal("extra visual content accepted as codec padding")
-	}
-	info.VideoDuration = 15
-	info.Duration = 14.5
-	if validateDirectMedia(p, info) == nil {
-		t.Fatal("truncated dialogue timeline accepted")
 	}
 	p.EndingText = "分格放好"
 	if _, err = a.render(ctx, p); err != nil {

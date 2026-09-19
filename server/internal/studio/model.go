@@ -26,6 +26,7 @@ type Config struct {
 // composes the designed score sections. Override with STARNET_AUDIO_MODEL or
 // the engine settings page.
 const defaultAudioModel = "volcengine/doubao-seed-audio-1-0"
+
 type Asset = domain.Asset
 type Shot = domain.Shot
 type Event = domain.Event
@@ -153,10 +154,10 @@ func validateProject(p *Project) error {
 		return errors.New("片名需为 1–80 个字符")
 	}
 	if sceneID(p) == "commerce" {
-		if p.Duration != 15 {
-			return errors.New("电商 v3 采用15秒整条直出")
+		if !isCommerceDuration(p.Duration) {
+			return errors.New("电商 v3 支持 10–60 秒整条直出")
 		}
-	} else if p.Duration != 60 && p.Duration != 120 && p.Duration != 180 && p.Duration != 240 {
+	} else if !isWeddingTemplate(p) && p.Duration != 60 && p.Duration != 120 && p.Duration != 180 && p.Duration != 240 {
 		return errors.New("此场景支持60–240秒整分钟")
 	}
 
@@ -178,20 +179,36 @@ func isRunning(status string) bool {
 	return status == "planning" || status == "generating" || status == "rendering"
 }
 func layout(p *Project) error {
+	if isWeddingTemplate(p) {
+		return weddingLayout(p)
+	}
 	n := len(p.Shots)
 	if n < 1 {
 		return errors.New("没有可剪辑的镜头")
 	}
 	if isDirectCommerce(p) {
-		if n != 1 || p.Duration != 15 {
-			return errors.New("电商直出必须是一条15秒广告")
+		if !isCommerceDuration(p.Duration) {
+			return errors.New("电商直出必须为 10–60 秒广告")
 		}
-		s := &p.Shots[0]
-		s.Duration = 15
-		s.EditSeconds = 15
-		s.EditFrames = 360
-		s.TimelineStart = 0
-		s.Transition = "cut"
+		cursor := 0.0
+		total := 0
+		for i := range p.Shots {
+			s := &p.Shots[i]
+			if s.Duration <= 0 {
+				return fmt.Errorf("镜头 %s 缺少时长", s.ID)
+			}
+			s.EditSeconds = float64(s.Duration)
+			s.EditFrames = s.Duration * 24
+			s.TimelineStart = cursor
+			if s.Transition == "" {
+				s.Transition = "cut"
+			}
+			cursor += s.EditSeconds
+			total += s.Duration
+		}
+		if total != p.Duration {
+			return fmt.Errorf("分镜总时长 %d 秒与工程 %d 秒不一致", total, p.Duration)
+		}
 		return nil
 	}
 	overlap := 0
