@@ -8,6 +8,9 @@
     "pnpm-lock.yaml",
     "yarn.lock",
     "bun.lock",
-    "bun.lockb"
+    "bun.lockb",
+    "server/internal/wedding/upstream/**",
+    "server/internal/advertising/prompts/**",
+    "public/templates/wedding-story-intake.html"
   ]
 }

@@ -243,5 +243,60 @@
         "caption": ""
       }
     ]
+  },
+  {
+    "id": "wedding-story-guided",
+    "version": "4344397-v1",
+    "engine": "wedding-guided",
+    "name": "把日子写成我们",
+    "subtitle": "五幕真实故事 · 第三人称旁白 · 14 步引导制作",
+    "scene": "wedding",
+    "duration": 90,
+    "ratio": "16:9",
+    "style": "romantic",
+    "occasion": "story",
+    "wardrobeMode": "auto",
+    "bpm": 76,
+    "musicDirection": "跟随旁白情绪设计纯器乐，温暖克制，给人声留出空间。",
+    "referenceUrl": "https://github.com/aaronyi97/wedding-video-guided-wizard",
+    "referenceBvid": "",
+    "referenceNote": "完整保留 wedding-video-guided-wizard 原始提示词、采集卡与14步审核规范。",
+    "previewUrl": "/demo/wedding-story-guided.mp4",
+    "posterUrl": "/demo/wedding-story-guided-poster.jpg",
+    "description": "从两人的真实经历开始，先确认文案与完整旁白，再设计分镜、制作首帧和视频。每一步保留当前版本与审核反馈，最终输出配乐、旁白和中文字幕的完整影片。",
+    "materialHint": "完整故事采集卡、两位主角照片、片尾寄语。创建后按步骤补齐。",
+    "chapters": [
+      {
+        "title": "相识",
+        "setting": "依本单事实",
+        "look": "依人物时期与素材",
+        "beat": "第一次认识彼此"
+      },
+      {
+        "title": "相知",
+        "setting": "依本单事实",
+        "look": "依人物时期与素材",
+        "beat": "慢慢走近的小事"
+      },
+      {
+        "title": "确认",
+        "setting": "依本单事实",
+        "look": "依人物时期与素材",
+        "beat": "决定一起向前"
+      },
+      {
+        "title": "相伴",
+        "setting": "依本单事实",
+        "look": "依人物时期与素材",
+        "beat": "属于两人的日常"
+      },
+      {
+        "title": "承诺",
+        "setting": "依本单事实",
+        "look": "依人物时期与素材",
+        "beat": "走向共同的以后"
+      }
+    ],
+    "shots": []
   }
 ]

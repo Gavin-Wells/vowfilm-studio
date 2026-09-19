@@ -36,6 +36,7 @@ type Shot struct {
 	TransitionReason string `json:"transitionReason,omitempty"`
 }
 type Film struct {
+	Engine         string    `json:"engine,omitempty"`
 	ID             string    `json:"id"`
 	Version        string    `json:"version"`
 	Name           string    `json:"name"`

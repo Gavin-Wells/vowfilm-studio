@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BrandLogo } from '@/components/brand-logo';
+import { StudioNavLinks } from '@/components/studio-nav-links';
 import {
   ArrowLeft,
   ChevronRight,
@@ -100,6 +101,7 @@ export default function SettingsPage() {
               <i className={config?.connected ? 'online' : ''} />
               {config?.connected ? '创作引擎已连接' : '等待配置 API Key'}
             </span>
+            <StudioNavLinks />
             <Link className="secondary-button" href="/">
               <ArrowLeft size={16} />
               返回工作台
@@ -108,15 +110,6 @@ export default function SettingsPage() {
         </header>
 
         <main className="new-film-page settings-page">
-          <div className="new-film-hero">
-            <div className="eyebrow">PROVIDER SETTINGS</div>
-            <h1>自定义创作引擎</h1>
-            <p>
-              配置 OpenAI 兼容 API 的地址、密钥与模型。支持星网、OpenAI、Azure
-              OpenAI 或任何兼容 <code>/v1/chat/completions</code> 的服务。
-            </p>
-          </div>
-
           <form className="new-film-form" onSubmit={saveSettings}>
             <section className="new-film-section">
               <div className="section-heading">

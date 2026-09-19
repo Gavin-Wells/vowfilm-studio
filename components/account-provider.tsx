@@ -9,16 +9,9 @@ import {
 } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  LoaderCircle,
-  Wallet,
-  UserRound,
-  ShieldCheck,
-  Clapperboard,
-} from 'lucide-react';
+import { LoaderCircle, ShieldCheck } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { Auth } from '@/lib/platform';
-import { credits } from '@/lib/platform';
 import { Button } from '@/components/ui/button';
 const AccountContext = createContext<{
   auth: Auth | null;
@@ -85,44 +78,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
           <Link href="/">返回创作工作台</Link>
         </div>
       ) : (
-        <>
-          <nav className="account-nav" aria-label="账号导航">
-            <Link href="/" aria-current={path === '/' ? 'page' : undefined}>
-              <Clapperboard size={16} />
-              创作工作台
-            </Link>
-            <Link
-              href="/billing"
-              aria-current={path === '/billing' ? 'page' : undefined}
-            >
-              <Wallet size={16} />
-              积分与账单{' '}
-              <span>
-                {credits((auth?.user.balance || 0) - (auth?.user.held || 0))}
-              </span>
-            </Link>
-            {auth?.permissions.some(
-              (p) => p === 'users:manage' || p === 'billing:manage',
-            ) && (
-              <Link
-                href="/admin"
-                aria-current={path === '/admin' ? 'page' : undefined}
-              >
-                <ShieldCheck size={16} />
-                管理中心
-              </Link>
-            )}
-            <Link
-              className="account-nav-user"
-              href="/account"
-              aria-current={path === '/account' ? 'page' : undefined}
-            >
-              <UserRound size={16} />
-              {auth?.user.name}
-            </Link>
-          </nav>
-          {children}
-        </>
+        children
       )}
     </AccountContext.Provider>
   );

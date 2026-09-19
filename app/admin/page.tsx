@@ -127,11 +127,7 @@ export default function AdminPage() {
     }
   }
   return (
-    <PlatformPage
-      eyebrow="PLATFORM ADMINISTRATION"
-      title="管理中心"
-      description="集中管理账号、计费规则与额度，关键操作保留审计记录。"
-    >
+    <PlatformPage title="管理中心">
       <div className="page-toolbar">
         <span className="platform-badge">
           <ShieldCheck size={14} />

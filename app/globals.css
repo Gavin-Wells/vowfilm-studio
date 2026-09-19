@@ -2,6 +2,70 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @custom-variant dark (&:is(.dark *));
+
+.template-preview video { width: 100%; height: 100%; object-fit: cover; }
+.wedding-automatic { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 22px; margin-bottom: 24px; }
+.wedding-automatic h2 { font-size: 24px; margin: 8px 0; }
+.wedding-automatic p, .wedding-automatic output { color: var(--muted-foreground); line-height: 1.7; font-size: 14px; }
+.wedding-automatic > div { max-width: 780px; }
+.wedding-artifact > small { overflow-wrap: anywhere; }
+.wedding-page { max-width: 1440px; margin: auto; padding: 40px 32px 80px; }
+.wedding-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+.wedding-heading h1 { font-size: clamp(26px, 3vw, 38px); margin: 8px 0; }
+.wedding-heading p, .wedding-step-heading p, .wedding-approval p { color: var(--muted-foreground); }
+.wedding-layout { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 28px; align-items: start; }
+.wedding-steps { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 12px; position: sticky; top: 20px; }
+.wedding-progress { padding: 0 10px 18px; display: grid; gap: 12px; }
+.wedding-progress progress { width: 100%; height: 7px; accent-color: var(--primary); }
+.wedding-steps nav { display: grid; gap: 4px; }
+.wedding-steps nav button { background: transparent; padding: 10px; border-radius: 8px; min-height: 52px; display: flex; align-items: center; text-align: left; gap: 12px; color: var(--foreground); }
+.wedding-steps nav button:hover { background: var(--surface); }
+.wedding-steps nav button.selected { background: var(--accent-tint); color: var(--primary); }
+.wedding-steps nav button > span:first-child { width: 22px; flex-shrink: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.wedding-steps nav small { display: block; color: var(--muted-foreground); font-size: 11px; margin-top: 2px; }
+.wedding-source { display: flex; align-items: center; gap: 8px; padding: 16px 10px 2px; margin-top: 12px; border-top: 1px solid var(--border); font-size: 12px; }
+.wedding-panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 30px; min-width: 0; }
+.wedding-step-heading h2 { margin: 8px 0 12px; font-size: 27px; }
+.wedding-step-heading p { line-height: 1.8; max-width: 70ch; }
+.wedding-action-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+.wedding-notice { padding: 14px 18px; border-radius: 8px; background: var(--surface); margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
+.wedding-artifacts { display: grid; gap: 18px; margin-top: 24px; }
+.wedding-artifact { border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+.wedding-artifact-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; overflow-wrap: anywhere; }
+.wedding-artifact-heading a { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: var(--surface); border-radius: 8px; }
+.wedding-artifact pre, .wedding-shot-prompts pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; line-height: 1.85; background: var(--surface); padding: 18px; border-radius: 8px; max-height: 440px; overflow: auto; margin: 12px 0; }
+.wedding-artifact img, .wedding-artifact video { display: block; width: 100%; max-height: 480px; object-fit: contain; border-radius: 8px; background: var(--preview); margin-top: 12px; }
+.wedding-artifact audio { width: 100%; margin: 16px 0; }
+.wedding-artifact > small { display: block; font-size: 11px; color: var(--muted-foreground); margin-top: 12px; }
+.wedding-empty { display: grid; place-items: center; gap: 10px; padding: 42px 20px; border: 1px dashed var(--border); border-radius: 10px; margin-top: 24px; color: var(--muted-foreground); text-align: center; }
+.wedding-empty span { font-size: 13px; }
+.wedding-upload, .wedding-approval { display: grid; gap: 14px; margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border); }
+.wedding-upload h3, .wedding-approval h3 { font-size: 18px; }
+.wedding-upload label, .wedding-approval label, .wedding-reopen label { font-size: 13px; font-weight: 600; display: block; }
+.wedding-form-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.wedding-form-row > div { flex: 1; min-width: 160px; }
+.wedding-form-row select { width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--surface); color: var(--foreground); margin-top: 8px; }
+.wedding-approval { background: var(--surface); border: 1px solid var(--border); padding: 22px; border-radius: 10px; }
+.wedding-approval p { font-size: 13px; margin-top: 6px; }
+.wedding-approval button { justify-self: start; }
+.wedding-reopen { margin-top: 28px; color: var(--muted-foreground); font-size: 13px; }
+.wedding-reopen summary { display: flex; gap: 8px; align-items: center; cursor: pointer; min-height: 44px; }
+.wedding-reopen p, .wedding-reopen input { margin: 12px 0; }
+.wedding-shot-prompts summary { cursor: pointer; padding: 14px 0; min-height: 44px; }
+.wedding-shot-prompts article { border-top: 1px solid var(--border); padding-top: 16px; }
+.wedding-shot-prompts label { display: block; margin-top: 12px; font-size: 12px; color: var(--muted-foreground); }
+.wedding-receipts { display: grid; gap: 12px; margin-top: 20px; color: var(--positive); font-size: 13px; }
+.wedding-receipts p { display: flex; gap: 8px; }
+@media (max-width: 800px) {
+  .wedding-page { padding: 24px 16px 60px; }
+  .wedding-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .wedding-panel { padding: 20px; }
+  .wedding-steps { position: static; }
+  .wedding-steps nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wedding-steps nav button { font-size: 12px; gap: 6px; padding: 8px; }
+  .wedding-heading { align-items: start; }
+  .wedding-heading > .template-spec { font-size: 11px; white-space: nowrap; }
+}
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -2035,14 +2099,46 @@ textarea {
 
 /* Account, billing and multi-scene surfaces share the studio's existing theme. */
 .account-nav {
-  display: flex;
+  display: none;
+}
+.studio-nav-links {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 28px;
-  border-bottom: 1px solid var(--border);
-  background: var(--card);
   flex-wrap: wrap;
-  font-size: 14px;
+}
+.compact-nav-link {
+  gap: 6px;
+  padding-inline: 10px;
+}
+.compact-nav-link .nav-link-label {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.platform-page-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.platform-page-title {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0;
+  line-height: 1.3;
+}
+.auth-layout-single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 480px;
+  margin-inline: auto;
+}
+.auth-brand-compact {
+  margin-bottom: 20px;
 }
 .account-nav a {
   display: inline-flex;
@@ -2079,15 +2175,11 @@ textarea {
 .platform-page {
   max-width: 1240px;
   margin: auto;
-  padding: 48px 32px 80px;
+  padding: 28px 32px 80px;
   font-size: 16px;
 }
 .platform-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 32px;
+  display: none;
 }
 .platform-heading h1 {
   font-size: 32px;

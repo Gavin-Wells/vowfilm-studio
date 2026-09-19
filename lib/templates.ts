@@ -1,8 +1,12 @@
 import catalog from '@/server/internal/templates/catalog.json';
 import { defaultDraft, type ProjectDraft } from '@/lib/creative';
 
-export const filmTemplates = catalog;
-export type FilmTemplate = (typeof filmTemplates)[number];
+export type FilmTemplate = (typeof catalog)[number] & {
+  engine?: string;
+  previewUrl?: string;
+  posterUrl?: string;
+};
+export const filmTemplates: FilmTemplate[] = catalog;
 
 export function templateDraft(template: FilmTemplate): ProjectDraft {
   return {

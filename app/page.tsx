@@ -3,7 +3,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { BrandLogo } from '@/components/brand-logo';
+import { StudioNavLinks } from '@/components/studio-nav-links';
 import {
   Aperture,
   ArrowRight,
@@ -54,6 +56,7 @@ import {
   styleChoices,
 } from '@/lib/creative';
 import type { Project, Shot, StudioConfig } from '@/lib/types';
+import { isDirectCommerceV3 } from '@/lib/commerce';
 
 const styles: Record<string, string> = {
   joyful: '欢快庆典',
@@ -112,11 +115,16 @@ function captionsURL(project: Project) {
 }
 
 export default function Studio() {
+  const router = useRouter();
   const { auth, refresh: refreshAccount } = useAccount();
   const canWrite = !!auth?.permissions.includes('project:write');
   const [quote, setQuote] = useState<Quote | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
+  useEffect(() => {
+    if (project?.templateId === 'wedding-story-guided')
+      router.replace(`/wedding?project=${encodeURIComponent(project.id)}`);
+  }, [project?.id, project?.templateId, router]);
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState('');
@@ -418,9 +426,9 @@ export default function Studio() {
           !value ||
           (value.title !== undefined && typeof value.title !== 'string') ||
           (value.duration !== undefined &&
-            !(value.scene === 'commerce' ? [15] : [60, 120, 180, 240]).includes(
-              value.duration,
-            ))
+            (value.scene === 'commerce'
+              ? value.duration < 10 || value.duration > 60
+              : ![60, 120, 180, 240].includes(value.duration)))
         )
           throw new Error('请检查影片名称和时长格式');
         const p = await api<Project>('projects', {
@@ -489,6 +497,7 @@ export default function Studio() {
                 <span>引擎配置</span>
               </Link>
             )}
+            <StudioNavLinks />
             <button
               className="avatar"
               onClick={openSettings}
@@ -598,7 +607,9 @@ export default function Studio() {
                   <span className="creation-mode-badge">
                     {project?.creationMode === 'template'
                       ? `模板 · ${filmTemplates.find((t) => t.id === project.templateId)?.name || '婚庆影片'}`
-                      : 'Agent 自由创作'}
+                      : project?.creationMode === 'commerce-ref'
+                        ? '带货快创 · H3 直出'
+                        : 'Agent 自由创作'}
                   </span>
                   <span>{styles[project?.style || 'garden']}</span>
                   <b>·</b>
@@ -653,7 +664,12 @@ export default function Studio() {
             )}
             <div className="stage-bar">
               {(project?.scene === 'commerce'
-                ? ['广告创意', '完整脚本', '15秒直出', '成片就绪']
+                ? [
+                    '广告创意',
+                    '完整脚本',
+                    `${project?.duration || 30} 秒直出`,
+                    '成片就绪',
+                  ]
                 : ['故事编排', '分镜设计', '视频生成', '剪辑成片']
               ).map((label, i) => (
                 <div
@@ -736,7 +752,11 @@ export default function Studio() {
                     <Empty className="preview-empty">
                       <Clapperboard size={36} strokeWidth={1} />
                       <p>故事的下一帧，由你开启</p>
-                      <span>添加人物、商品或场景参考，开始创作</span>
+                      <span>
+                        {project?.scene === 'commerce'
+                          ? '填写商品资料即可开始；参考图选填'
+                          : '添加人物、商品或场景参考，开始创作'}
+                      </span>
                     </Empty>
                   )}
                   {running && (
@@ -848,7 +868,7 @@ export default function Studio() {
                           {project?.status === 'completed'
                             ? '保留现有镜头，重新输出影片'
                             : project?.scene === 'commerce'
-                              ? '完整广告脚本 · 15秒直出 · 原生声音'
+                              ? `分镜直出 · ${project?.shots.length || 0} 镜 · 成片 ${project?.duration || 30} 秒`
                               : '自动编排 · 生成镜头 · 配乐剪辑'}
                         </p>
                       </>
@@ -909,16 +929,16 @@ export default function Studio() {
               <TabsContent value="storyboard">
                 {project?.scene === 'commerce' &&
                   project.shots.length > 0 &&
-                  project.generationMode !== 'commerce-direct-15s-v3' && (
+                  !isDirectCommerceV3(project.generationMode) && (
                     <p className="fine-print">
-                      当前是旧版分镜。请确认导演手记的时长为15秒，保存后点击「重新编排」使用
-                      v3。
+                      当前是旧版分镜。请确认导演手记时长在 10–60
+                      秒，保存后点击「重新编排」使用 v3。
                     </p>
                   )}
                 <div className="section-description">
                   <span>
                     {project?.scene === 'commerce'
-                      ? '一条完整指令，生成15秒广告与原生声音。'
+                      ? `一条完整指令，生成 ${project?.duration || 30} 秒广告与原生声音。`
                       : '每一个镜头，都让故事向前一步。'}
                   </span>
                   <span>
@@ -1021,10 +1041,10 @@ export default function Studio() {
                     </div>
                   )}
                   {project?.scene === 'commerce' &&
-                  project.generationMode === 'commerce-direct-15s-v3' &&
+                  isDirectCommerceV3(project.generationMode) &&
                   project.shots[0] ? (
                     <div className="director-request">
-                      <strong>15秒完整广告 Prompt · v3</strong>
+                      <strong>{project.duration} 秒完整广告 Prompt · v3</strong>
                       <p style={{ whiteSpace: 'pre-wrap' }}>
                         {project.shots[0].prompt}
                       </p>
@@ -1152,7 +1172,7 @@ export default function Studio() {
                         {project?.creationMode === 'template'
                           ? '使用固定模板结构'
                           : project?.scene === 'commerce'
-                            ? '先写一条完整的15秒广告指令'
+                            ? `先写一条完整的 ${project?.duration || 30} 秒广告指令（参考图选填）`
                             : '先把故事和造型排成一部影片'}
                       </p>
                       <span>
@@ -1193,7 +1213,7 @@ export default function Studio() {
                       onChange={setUploadRole}
                       label="素材用途"
                       items={[
-                        { value: 'reference', label: '场景参考' },
+                        { value: 'reference', label: '人物/主播参考' },
                         ...(project?.scene === 'wedding' || !project?.scene
                           ? [
                               { value: 'bride', label: '新娘照片' },
@@ -1248,7 +1268,7 @@ export default function Studio() {
                               product: '商品',
                               bride: '新娘',
                               groom: '新郎',
-                              reference: '场景参考',
+                              reference: '人物/主播参考',
                               music: '背景音乐',
                             }[asset.role]
                           }
@@ -1375,7 +1395,7 @@ export default function Studio() {
                 <div className="music-track">
                   <Music2 size={14} />
                   <span>
-                    {project.generationMode === 'commerce-direct-15s-v3'
+                    {isDirectCommerceV3(project.generationMode)
                       ? '原生声音 · 与画面一起生成'
                       : project.assets.some((a) => a.role === 'music')
                         ? '项目配乐'
@@ -1575,7 +1595,7 @@ export default function Studio() {
             </div>
             <p className="fine-print">
               {project?.scene === 'commerce'
-                ? '重新调用视频模型直出完整15秒广告，原生声音也会重新生成。'
+                ? `重新调用视频模型直出完整 ${project?.duration || 30} 秒广告，原生声音也会重新生成。`
                 : '重做会调用视频模型。保留其余镜头，完成后可重新合成影片。'}
             </p>
           </DialogContent>

@@ -1,0 +1,137 @@
+{
+  "repository": "https://github.com/aaronyi97/wedding-video-guided-wizard",
+  "commit": "4344397a5f9800c0a5550a83c8358f88afea9b03",
+  "license": "MIT",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "f17b6fae05a4cd734466cef8ed62406c624ee346f62e6a80afce29e549df03b8",
+      "bytes": 117
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "b300ea9a0e5aa80580b9f8ed0dfdb2aedbbb15dfd7ffc0b4c87c403da78ad975",
+      "bytes": 1177
+    },
+    {
+      "path": "README.en.md",
+      "sha256": "776535766e90c9a892e843fd6275804e54f38e622f3719e235b86ccf89f68bea",
+      "bytes": 7808
+    },
+    {
+      "path": "README.md",
+      "sha256": "da00c428febd7dad7d5041651a3411231f5c60ebd257df663f718359d0d38ae3",
+      "bytes": 6159
+    },
+    {
+      "path": "SKILL.en.md",
+      "sha256": "54a51a3181352ea1f9576c7da20eddae3c29ba6c2d8126f28276f58586cd1688",
+      "bytes": 8115
+    },
+    {
+      "path": "SKILL.md",
+      "sha256": "81efc42e729384ca3d5ac1b68a3a157654b56890932daa39e4728cbcb37a1a65",
+      "bytes": 8047
+    },
+    {
+      "path": "VALIDATION.en.md",
+      "sha256": "e1a8fa4ef23c0903afa7d67e67706889ff7044b8b06b0104e4a146fb7006dc8c",
+      "bytes": 2887
+    },
+    {
+      "path": "VALIDATION.md",
+      "sha256": "a49d1facbcf49ea2ff0cabfb4219fc2dd13b9af90ba254d507c2e5300cf0e2b5",
+      "bytes": 3245
+    },
+    {
+      "path": "agents/openai.yaml",
+      "sha256": "efc841810022a914c955f6f0a715e1a710598ead995f522b17b26244a46df1bf",
+      "bytes": 367
+    },
+    {
+      "path": "assets/story-intake.en.md",
+      "sha256": "ccdb9f41694ec50b1486ecd6dfc999d6d89c3d102ea3bf889bc681a59b5d1071",
+      "bytes": 4128
+    },
+    {
+      "path": "assets/story-intake.html",
+      "sha256": "0150575e8d5b1484e2c579702ebf131e755a0eca08e727bfa982735933cd3cd5",
+      "bytes": 42798
+    },
+    {
+      "path": "assets/story-intake.md",
+      "sha256": "45f9f8784a511b2e5c5354662b64481477627973acd8a69c5e055782839692ef",
+      "bytes": 5875
+    },
+    {
+      "path": "assets/writing-pack-guide.en.md",
+      "sha256": "59ea4aca3acebd7ffa2d96249067de9ffdbfb1a9530f61ddd7caf964f7c1cff0",
+      "bytes": 1973
+    },
+    {
+      "path": "assets/writing-pack-guide.md",
+      "sha256": "e6b8901a1522b38238f47a8c30c662d9f55045a1ab6fe9471e0fdf9756974a64",
+      "bytes": 1197
+    },
+    {
+      "path": "references/audio.md",
+      "sha256": "8358365e15e48432ebd7840a7a47c0674a9d07136b301826931f470972148d71",
+      "bytes": 4447
+    },
+    {
+      "path": "references/en/audio.md",
+      "sha256": "452f89f3750542e76ad8749fa0d267f3461b90645882f09eec75959b78cea386",
+      "bytes": 5508
+    },
+    {
+      "path": "references/en/execution.md",
+      "sha256": "adbfa3274e1a9bb08ad48afe28a6df72d991dacab2e0b1a0303d51b401e36c30",
+      "bytes": 9360
+    },
+    {
+      "path": "references/en/visuals.md",
+      "sha256": "a487c067a41a5f59de8002d4ff6867aa7d24b901c7739073fcf13dc2a87c20fd",
+      "bytes": 4624
+    },
+    {
+      "path": "references/en/workflow.md",
+      "sha256": "5b7d241ad65efe775e9a4fe9b604dff6637ff265466b14b6a619e61529e53711",
+      "bytes": 6111
+    },
+    {
+      "path": "references/en/writing.md",
+      "sha256": "20aa73e1de7145b518a2f078535cabbdba23d188bcd8d6c68a87ebdc46d70292",
+      "bytes": 4744
+    },
+    {
+      "path": "references/execution.md",
+      "sha256": "9e7f20ef624b3f55cf906d2e824332f3a1bc065e129130114f076a52e80a445f",
+      "bytes": 7963
+    },
+    {
+      "path": "references/visuals.md",
+      "sha256": "9bbdf321a02b3e6532805b5f159a101a62807fc8a7721b12d826210b5f3d54f0",
+      "bytes": 3788
+    },
+    {
+      "path": "references/workflow.md",
+      "sha256": "7be2211689eeb5c05ac88adfc9d855992a8e553a43f6c125e0ce7a3a4c3b3628",
+      "bytes": 5816
+    },
+    {
+      "path": "references/writing.md",
+      "sha256": "cd192495350fa9b16331ec223cb4f0b8d8d0c9866cc204000a66e9def15712a7",
+      "bytes": 3402
+    },
+    {
+      "path": "scripts/media.py",
+      "sha256": "193a30ee6c45fb2c239fa2ffddf517dd7a609b73d58f9c1c285155d049b219d8",
+      "bytes": 19886
+    },
+    {
+      "path": "scripts/wizard.py",
+      "sha256": "17c5b559ea1c2fc183038216b150349d4f8e6454625b4b54373ee2f1d2a9c5e7",
+      "bytes": 15473
+    }
+  ]
+}

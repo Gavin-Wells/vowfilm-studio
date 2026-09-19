@@ -1,5 +1,7 @@
 # 后端分层与数据库切换
 
+全系统功能、前端目录和各生成分支见 [系统架构](architecture.md)；本文聚焦后端依赖和数据库运行。
+
 ## 依赖边界
 
 - `cmd/server`：进程配置与 HTTP 服务启动。
@@ -7,6 +9,8 @@
 - `internal/studio/workflow.go`：现有影片工作流应用服务，编排模型服务、媒体处理、任务计费与项目仓库。
 - `internal/platform`：账号应用服务、权限模型、报价模型和 Repository 接口。不导入 `database/sql`、SQLite 或 PostgreSQL 驱动。
 - `internal/domain`：Project、Shot、Treatment 等领域类型及 ProjectRepository 接口。
+- `internal/wedding`：婚礼阶段规则、原版 Prompt 与来源摘要；`domain/wedding.go` 保存阶段、材料、确认和自动任务数据。HTTP、自动生成与渲染位于 `studio/wedding*.go`。
+- `internal/advertising`、`internal/templates`：原版广告 Prompt 与版本化模板目录；电商编排和生成分组位于 `studio/advertising.go`、`commerce_*.go`。
 - `internal/storage`：SQL 仓库实现、事务、参数绑定与数据库迁移。SQLite 使用 modernc 驱动，PostgreSQL 使用 pgx。SQL 方言差异只在这一层。
 - `internal/storage/migrations/001_initial.sql`：两种数据库共用的首版 schema，由程序嵌入，在事务中执行；`schema_migrations` 记录版本，拒绝启动在未来版本的数据库上。后续 schema 变化需添加新编号迁移及升级分支，不能修改已应用迁移。
 

@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -115,33 +116,138 @@ func hasAuthorizedIdentity(p *Project) bool {
 // Pin a generated still once per project. Its index is appended after the user
 // references and never shifts their numbering; later retries reuse the same
 // file even when the source shot is regenerated.
+func usesGenerateIdentityChain(p *Project) bool {
+	if p == nil || hasAuthorizedIdentity(p) {
+		return false
+	}
+	if p.CreationMode == "template" {
+		return true
+	}
+	return isDirectCommerce(p) && commerceGenerateUnitCount(p.Shots) > 1
+}
+
+func commerceAnchorLeaderID(p *Project) string {
+	leaders := commerceGenerateLeaders(p.Shots)
+	if len(leaders) == 0 {
+		return ""
+	}
+	return leaders[0].ID
+}
+
+func (a *App) ensureCommerceAnchorLeader(ctx context.Context, id string, refs []map[string]any, guide, mode string, selectedShots ...string) error {
+	p := a.store.Get(id)
+	if p == nil || !isDirectCommerce(p) || commerceGenerateUnitCount(p.Shots) <= 1 {
+		return nil
+	}
+	anchorID := commerceAnchorLeaderID(p)
+	if anchorID == "" {
+		return nil
+	}
+	if mode == "shot" && len(selectedShots) > 0 && selectedShots[0] != anchorID {
+		return nil
+	}
+	var anchor Shot
+	for _, s := range p.Shots {
+		if s.ID == anchorID {
+			anchor = s
+			break
+		}
+	}
+	if anchor.ID == "" {
+		return errors.New("首段生成包不存在")
+	}
+	if anchor.Status == "completed" && anchor.VideoFile != "" {
+		return nil
+	}
+	shotRefs, shotGuide, err := a.templateIdentityReferences(p, refs, guide)
+	if err != nil {
+		return err
+	}
+	select {
+	case a.slots <- struct{}{}:
+		defer func() { <-a.slots }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return a.generateShot(ctx, id, anchorID, shotRefs, shotGuide)
+}
+
+func (a *App) requireCommerceIdentityAnchor(id string) error {
+	p := a.store.Get(id)
+	if p == nil || !isDirectCommerce(p) || commerceGenerateUnitCount(p.Shots) <= 1 {
+		return nil
+	}
+	if p.IdentityReference != nil {
+		return nil
+	}
+	anchorID := commerceAnchorLeaderID(p)
+	for _, s := range p.Shots {
+		if s.ID == anchorID && s.Status == "completed" && s.VideoFile != "" {
+			return a.pinIdentityAnchor(id, anchorID, s.VideoFile)
+		}
+	}
+	return errors.New("首段完成后才能生成其余视频包")
+}
+
+func (a *App) pinIdentityAnchor(id, sourceShotID, videoFile string) error {
+	a.identityMu.Lock()
+	defer a.identityMu.Unlock()
+	p := a.store.Get(id)
+	if p == nil || !usesGenerateIdentityChain(p) {
+		return nil
+	}
+	if want := commerceAnchorLeaderID(p); want != "" && sourceShotID != want {
+		return nil
+	}
+	if p.IdentityReference != nil && p.IdentityReference.SourceShotID == sourceShotID {
+		return nil
+	}
+	source := strings.TrimSuffix(filepath.Base(videoFile), ".mp4") + ".jpg"
+	raw, err := os.ReadFile(filepath.Join(a.cfg.DataDir, id, source))
+	if err != nil {
+		return fmt.Errorf("读取人物身份锚点失败：%w", err)
+	}
+	file := "identity-anchor.jpg"
+	if err = os.WriteFile(filepath.Join(a.cfg.DataDir, id, file), raw, 0600); err != nil {
+		return err
+	}
+	anchor := &domain.IdentityReference{File: file, URL: mediaURL(id, file), SourceShotID: sourceShotID}
+	return a.store.Update(id, func(q *Project) error {
+		q.IdentityReference = anchor
+		if isDirectCommerce(q) {
+			event(q, "已固定首段人物身份锚点，后续视频包将附带同一参考图")
+		} else {
+			event(q, "已固定人物身份参考，后续模板镜头使用同一张身份锚点")
+		}
+		return nil
+	})
+}
+
 func (a *App) templateIdentityReferences(p *Project, refs []map[string]any, guide string) ([]map[string]any, string, error) {
-	if p == nil || p.CreationMode != "template" || hasAuthorizedIdentity(p) {
+	if p == nil || !usesGenerateIdentityChain(p) {
 		return refs, guide, nil
 	}
 	anchor := p.IdentityReference
+	if anchor != nil && isDirectCommerce(p) {
+		want := commerceAnchorLeaderID(p)
+		if want != "" && anchor.SourceShotID != want {
+			anchor = nil
+		}
+	}
 	if anchor == nil {
+		anchorLeader := commerceAnchorLeaderID(p)
 		for _, shot := range p.Shots {
-			if shot.Status != "completed" || shot.VideoFile == "" || shot.ThumbnailURL == "" {
+			if anchorLeader != "" && shot.ID != anchorLeader {
 				continue
 			}
-			source := strings.TrimSuffix(filepath.Base(shot.VideoFile), ".mp4") + ".jpg"
-			raw, err := os.ReadFile(filepath.Join(a.cfg.DataDir, p.ID, source))
-			if err != nil {
-				return nil, "", fmt.Errorf("读取人物身份锚点失败：%w", err)
+			if shot.Status != "completed" || shot.VideoFile == "" {
+				continue
 			}
-			file := "identity-anchor.jpg"
-			if err = os.WriteFile(filepath.Join(a.cfg.DataDir, p.ID, file), raw, 0600); err != nil {
+			if err := a.pinIdentityAnchor(p.ID, shot.ID, shot.VideoFile); err != nil {
 				return nil, "", err
 			}
-			anchor = &domain.IdentityReference{File: file, URL: mediaURL(p.ID, file), SourceShotID: shot.ID}
-			if err = a.store.Update(p.ID, func(q *Project) error {
-				q.IdentityReference = anchor
-				event(q, "已固定人物身份参考，后续模板镜头使用同一张身份锚点")
-				return nil
-			}); err != nil {
-				return nil, "", err
-			}
+			p = a.store.Get(p.ID)
+			anchor = p.IdentityReference
 			break
 		}
 	}
